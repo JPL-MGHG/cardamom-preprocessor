@@ -1,0 +1,22 @@
+name: cardamom-ecmwf-downloader
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9
+  - pip
+  # Core data processing
+  - numpy
+  - xarray
+  - netcdf4
+  - pandas
+  # ECMWF CDS API
+  - pip:
+    - cdsapi
+    # MAAP-specific tools
+    - maap-py
+    - pystac
+    - pystac-client
+    # Additional utilities
+    - boto3
+    - requests
