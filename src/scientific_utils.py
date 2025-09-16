@@ -357,3 +357,35 @@ def calculate_growing_degree_days(daily_temp_max_celsius: Union[float, np.ndarra
     growing_degree_days = np.maximum(0, daily_mean_temperature - base_temperature_celsius)
 
     return growing_degree_days
+
+
+def nan_to_zero(data: np.ndarray) -> np.ndarray:
+    """
+    Convert NaN values to zero in array data.
+
+    Equivalent to MATLAB nan2zero() function used in GFED processing.
+    Referenced in CARDAMOM_MAPS_READ_GFED_NOV24.m for cleaning gap-filled data.
+
+    Scientific Context:
+    In fire emissions processing, NaN values typically represent missing data
+    or undefined calculations (e.g., division by zero in emission ratios).
+    Converting to zero is appropriate for fire data where absence of data
+    usually means no fire activity.
+
+    Args:
+        data: Input array that may contain NaN values
+            Typical use: Fire emissions, burned area fractions
+
+    Returns:
+        np.ndarray: Array with NaN values replaced by 0.0
+            Same shape and dtype as input array
+
+    Example:
+        >>> fire_data = np.array([1.5, np.nan, 3.2, np.nan, 0.8])
+        >>> clean_data = nan_to_zero(fire_data)
+        >>> print(clean_data)
+        [1.5 0.0 3.2 0.0 0.8]
+    """
+    clean_data = data.copy()
+    clean_data[np.isnan(clean_data)] = 0.0
+    return clean_data
