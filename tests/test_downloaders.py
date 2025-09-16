@@ -13,9 +13,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 import sys
 
-# Add src directory to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
-
+# Use package imports
 from base_downloader import BaseDownloader
 from downloader_factory import DownloaderFactory, RetryManager
 from data_source_config import DataSourceConfig
