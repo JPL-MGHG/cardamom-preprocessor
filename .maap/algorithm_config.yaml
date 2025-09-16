@@ -1,0 +1,37 @@
+algorithm_description: "ECMWF ERA5 data downloader for CARDAMOM preprocessing. Downloads meteorological variables from ECMWF Climate Data Store with configurable spatial/temporal parameters for carbon cycle modeling applications."
+algorithm_name: cardamom-ecmwf-downloader
+algorithm_version: main
+build_command: cardamom-preprocessor/.maap/build.sh
+disk_space: 100GB
+docker_container_url: mas.maap-project.org/root/maap-workspaces/custom_images/maap_base:v4.2.0
+queue: maap-dps-worker-8gb
+repository_url: https://github.com/JPL-MGHG/cardamom-preprocessor.git
+run_command: cardamom-preprocessor/.maap/run.sh
+inputs:
+  config: []
+  file: []
+  positional:
+    - name: download_mode
+      default: "cardamom-monthly"
+      description: "Download mode: hourly, monthly, cardamom-hourly, cardamom-monthly"
+    - name: output_dir
+      default: "./output"
+      description: "Output directory for downloaded files"
+    - name: years
+      default: "2020-2021"
+      description: "Years to download (single: 2020, range: 2020-2022)"
+    - name: months
+      default: "1-12"
+      description: "Months to download (single: 6, range: 6-8)"
+    - name: variables
+      default: "2m_temperature,total_precipitation"
+      description: "Comma-separated list of ECMWF variables"
+    - name: area
+      default: ""
+      description: "Area bounds as N,W,S,E (optional - uses defaults for cardamom modes)"
+    - name: grid
+      default: "0.5/0.5"
+      description: "Grid resolution (e.g., 0.5/0.5)"
+    - name: format
+      default: "netcdf"
+      description: "Data format: netcdf or grib"

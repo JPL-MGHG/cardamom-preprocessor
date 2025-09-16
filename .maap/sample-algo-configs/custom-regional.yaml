@@ -1,0 +1,23 @@
+# Sample configuration for custom regional download
+algorithm_name: cardamom-ecmwf-downloader
+parameters:
+  download_mode: "monthly"
+  output_dir: "./output"
+  years: "2020-2021"
+  months: "6-8"  # Summer months
+  variables: "2m_temperature,total_precipitation,surface_solar_radiation_downwards"
+  area: "70,-160,40,-120"  # Alaska region (N,W,S,E)
+  grid: "0.25/0.25"        # High resolution
+  format: "netcdf"
+
+description: |
+  Custom regional download example for Alaska region during summer months.
+  Demonstrates how to specify:
+  - Custom geographic bounds
+  - Specific variables
+  - Custom temporal range
+  - Higher spatial resolution
+  
+  Area bounds: Alaska (70°N, -160°W, 40°N, -120°W)
+  Variables: Temperature, precipitation, and solar radiation
+  Time period: Summer months (Jun-Aug) for 2020-2021

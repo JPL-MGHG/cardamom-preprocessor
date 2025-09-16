@@ -1,0 +1,20 @@
+# Sample configuration for CARDAMOM hourly CONUS download
+algorithm_name: cardamom-ecmwf-downloader
+parameters:
+  download_mode: "cardamom-hourly"
+  output_dir: "./output"
+  years: "2015-2020"
+  months: "1-12"
+  variables: ""  # Uses predefined variables for CARDAMOM
+  area: ""       # Uses CONUS area (60,-130,20,-50)
+  grid: "0.5/0.5"
+  format: "netcdf"
+
+description: |
+  Downloads hourly ECMWF ERA5 data for CARDAMOM preprocessing over CONUS region.
+  Optimized for high-resolution carbon cycle modeling applications.
+  
+  This configuration downloads:
+  - CONUS region (60°N, -130°W, 20°N, -50°W)
+  - Hourly data: skin_temperature (SKT), surface_solar_radiation_downwards (SSRD)
+  - All hours (00:00-23:00) for each day
