@@ -213,6 +213,125 @@ class CoordinateGrid:
         }
 
 
+def load_land_sea_mask(resolution: float = 0.25) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Load land-sea mask data for specified resolution.
+
+    Equivalent to MATLAB loadlandseamask(0.25) function called in:
+    CARDAMOM_MAPS_READ_GFED_NOV24.m line 11: [~,lsfrac025]=loadlandseamask(0.25);
+
+    This function provides land fraction data where values represent the
+    fraction of each grid cell that is land (vs ocean). Used for masking
+    fire data to land regions only.
+
+    Args:
+        resolution: Grid resolution in decimal degrees (default: 0.25)
+
+    Returns:
+        tuple: (land_mask_binary, land_fraction_data)
+            - land_mask_binary: Binary land mask (1=land, 0=ocean)
+            - land_fraction_data: Land fraction (0.0-1.0) for each grid cell
+
+    Notes:
+        Currently returns placeholder data. In full implementation, this would
+        load from a land-sea mask dataset (e.g., MODIS, Natural Earth, GSHHG).
+    """
+    # Create coordinate grid at specified resolution
+    grid = CoordinateGrid(resolution=resolution)
+    
+    # Create placeholder land-sea mask
+    # In full implementation, this would load from actual land-sea mask dataset
+    n_lat = grid.num_latitude_points
+    n_lon = grid.num_longitude_points
+    
+    # Create simple land mask: all points as land except extreme latitudes (ice/ocean)
+    land_fraction = np.ones((n_lat, n_lon))
+    
+    # Set polar regions (>80°N, <-60°S) as mostly ocean
+    lat_coords = grid.latitude_coordinates
+    for i, lat in enumerate(lat_coords):
+        if lat > 80 or lat < -60:
+            land_fraction[i, :] = 0.1  # Mostly ocean with some ice
+    
+    # Create simple ocean regions (approximation)
+    # This is a placeholder - real implementation would use actual coastline data
+    lon_coords = grid.longitude_coordinates
+    for j, lon in enumerate(lon_coords):
+        for i, lat in enumerate(lat_coords):
+            # Simple Pacific Ocean approximation
+            if -180 <= lon <= -80 and -40 <= lat <= 60:
+                land_fraction[i, j] = 0.2
+            # Simple Atlantic Ocean approximation  
+            elif -80 <= lon <= 20 and -40 <= lat <= 70:
+                land_fraction[i, j] = 0.3
+    
+    # Create binary land mask (>0.5 threshold)
+    land_mask_binary = (land_fraction > 0.5).astype(float)
+    
+    return land_mask_binary, land_fraction
+
+
+def convert_to_geoschem_grid(data: np.ndarray) -> np.ndarray:
+    """
+    Convert regular grid data to GeosChem 4x5 degree grid.
+
+    Equivalent to MATLAB GEOSChem_regular_grid_to_GC() function called in:
+    CARDAMOM_MAPS_READ_GFED_NOV24.m lines 51-52:
+    GFED.BA=GEOSChem_regular_grid_to_GC(GBA);
+    GFED.FireC=GEOSChem_regular_grid_to_GC(GCE)*12/365.25;
+
+    Args:
+        data: Input data array with shape (lat, lon) or (lat, lon, time)
+              at regular grid resolution (typically 0.25 degrees)
+
+    Returns:
+        np.ndarray: Data regridded to GeosChem 4°x5° grid
+
+    Notes:
+        Currently returns placeholder aggregation. In full implementation,
+        this would use the actual GeosChem grid definition and proper
+        area-weighted regridding.
+    """
+    if data.ndim == 2:
+        # 2D data (lat, lon)
+        # Simple aggregation: 4° latitude × 5° longitude
+        # 0.25° grid: 16 cells per 4° lat, 20 cells per 5° lon
+        lat_factor = 16  # 4° / 0.25°
+        lon_factor = 20  # 5° / 0.25°
+        
+        n_lat_gc = data.shape[0] // lat_factor
+        n_lon_gc = data.shape[1] // lon_factor
+        
+        # Reshape and aggregate
+        data_reshaped = data[:n_lat_gc*lat_factor, :n_lon_gc*lon_factor]
+        data_reshaped = data_reshaped.reshape(n_lat_gc, lat_factor, n_lon_gc, lon_factor)
+        
+        # Take mean over aggregated cells (with NaN handling)
+        gc_data = np.nanmean(data_reshaped, axis=(1, 3))
+        
+    elif data.ndim == 3:
+        # 3D data (lat, lon, time)
+        lat_factor = 16
+        lon_factor = 20
+        
+        n_lat_gc = data.shape[0] // lat_factor
+        n_lon_gc = data.shape[1] // lon_factor
+        n_time = data.shape[2]
+        
+        gc_data = np.zeros((n_lat_gc, n_lon_gc, n_time))
+        
+        # Process each time step
+        for t in range(n_time):
+            data_2d = data[:n_lat_gc*lat_factor, :n_lon_gc*lon_factor, t]
+            data_reshaped = data_2d.reshape(n_lat_gc, lat_factor, n_lon_gc, lon_factor)
+            gc_data[:, :, t] = np.nanmean(data_reshaped, axis=(1, 3))
+            
+    else:
+        raise ValueError(f"Unsupported data dimensions: {data.ndim}")
+    
+    return gc_data
+
+
 class StandardGrids:
     """
     Factory class for creating standard CARDAMOM coordinate grids.
