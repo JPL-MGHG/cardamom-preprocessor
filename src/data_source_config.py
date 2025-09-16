@@ -8,7 +8,7 @@ used in CARDAMOM preprocessing pipeline with validation and defaults.
 
 import os
 import yaml
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import logging
 from pathlib import Path
 

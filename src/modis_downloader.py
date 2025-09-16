@@ -13,7 +13,7 @@ import numpy as np
 import xarray as xr
 from typing import Dict, List, Any, Tuple
 import logging
-from .base_downloader import BaseDownloader
+from base_downloader import BaseDownloader
 
 
 class MODISDownloader(BaseDownloader):

@@ -13,7 +13,7 @@ import h5py
 import numpy as np
 from typing import Dict, List, Any, Tuple
 import logging
-from .base_downloader import BaseDownloader
+from base_downloader import BaseDownloader
 
 
 class GFEDDownloader(BaseDownloader):

@@ -10,9 +10,9 @@ import os
 import ftplib
 import numpy as np
 import xarray as xr
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any, Tuple, Optional
 import logging
-from .base_downloader import BaseDownloader
+from base_downloader import BaseDownloader
 
 
 class NOAADownloader(BaseDownloader):

@@ -11,7 +11,7 @@ import os
 import time
 from typing import List, Dict, Union, Any
 import logging
-from .base_downloader import BaseDownloader
+from base_downloader import BaseDownloader
 
 
 class ECMWFDownloader(BaseDownloader):
