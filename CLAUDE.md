@@ -134,7 +134,7 @@ The algorithm is designed as a **NASA MAAP algorithm** with the following charac
 
 ## Connection to CARDAMOM Framework
 
-This preprocessor creates meteorological inputs for the main CARDAMOM framework located at `/Users/shah/Desktop/Development/ghg/CARDAMOM/`. The downloaded ERA5 data provides essential climate drivers for:
+This preprocessor creates meteorological inputs for the main CARDAMOM framework. The downloaded ERA5 data provides essential climate drivers for:
 
 - **DALEC model simulations**: Photosynthesis, respiration, and carbon allocation processes
 - **Bayesian parameter estimation**: Constraining ecosystem model parameters using observations

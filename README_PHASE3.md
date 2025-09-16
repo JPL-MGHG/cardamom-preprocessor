@@ -270,8 +270,7 @@ python -m pytest tests/test_gfed_processor.py::TestGFEDProcessor::test_netcdf_ou
 ## Integration with CARDAMOM Framework
 
 ### Connection to Main CARDAMOM
-This preprocessor creates inputs for the main CARDAMOM framework at:
-`/Users/shah/Desktop/Development/ghg/CARDAMOM/`
+This preprocessor creates inputs for the main CARDAMOM framework.
 
 ### Output Compatibility
 - **NetCDF format** - Compatible with CARDAMOM NetCDF readers

@@ -5,7 +5,7 @@ Direct Python translation of MATLAB CARDAMOM_MAPS_READ_GFED_NOV24.m
 Handles burned area and fire emissions processing with gap-filling logic.
 
 Based on MATLAB function CARDAMOM_MAPS_READ_GFED_NOV24(RES) from:
-/Users/shah/Desktop/Development/ghg/cardamom-preprocessor/matlab-migration/CARDAMOM_MAPS_READ_GFED_NOV24.m
+matlab-migration/CARDAMOM_MAPS_READ_GFED_NOV24.m
 """
 
 import numpy as np
