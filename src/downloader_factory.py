@@ -10,11 +10,11 @@ import time
 import random
 from typing import Dict, List, Optional, Any, Callable
 import logging
-from .base_downloader import BaseDownloader
-from .ecmwf_downloader import ECMWFDownloader
-from .noaa_downloader import NOAADownloader
-from .gfed_downloader import GFEDDownloader
-from .modis_downloader import MODISDownloader
+from base_downloader import BaseDownloader
+from ecmwf_downloader import ECMWFDownloader
+from noaa_downloader import NOAADownloader
+from gfed_downloader import GFEDDownloader
+from modis_downloader import MODISDownloader
 
 
 class DownloaderFactory:

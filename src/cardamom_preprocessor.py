@@ -13,21 +13,20 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Union
 
-# Import existing ECMWF downloader
-sys.path.append(str(Path(__file__).parent.parent / "ecmwf"))
+# Import ECMWF downloader from package
 from ecmwf_downloader import ECMWFDownloader
 
 # Import CARDAMOM core modules
-from .config_manager import CardamomConfig
-from .coordinate_systems import CoordinateGrid, StandardGrids
-from .netcdf_infrastructure import CARDAMOMNetCDFWriter
-from .scientific_utils import (
+from config_manager import CardamomConfig
+from coordinate_systems import CoordinateGrid, StandardGrids
+from netcdf_infrastructure import CARDAMOMNetCDFWriter
+from scientific_utils import (
     calculate_vapor_pressure_deficit,
     convert_precipitation_units,
     convert_radiation_units
 )
-from .validation import QualityAssurance
-from .logging_utils import ProcessingLogger, setup_cardamom_logging, error_context
+from validation import QualityAssurance
+from logging_utils import ProcessingLogger, setup_cardamom_logging, error_context
 
 
 class CARDAMOMProcessor:

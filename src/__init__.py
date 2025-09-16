@@ -23,21 +23,21 @@ __version__ = "2.0.0"
 __author__ = "CARDAMOM Development Team"
 
 # Phase 1: Core module imports
-from .cardamom_preprocessor import CARDAMOMProcessor
-from .config_manager import CardamomConfig
-from .coordinate_systems import CoordinateGrid
-from .netcdf_infrastructure import CARDAMOMNetCDFWriter
-from .scientific_utils import calculate_vapor_pressure_deficit, convert_precipitation_units
+from cardamom_preprocessor import CARDAMOMProcessor
+from config_manager import CardamomConfig
+from coordinate_systems import CoordinateGrid
+from netcdf_infrastructure import CARDAMOMNetCDFWriter
+from scientific_utils import calculate_vapor_pressure_deficit, convert_precipitation_units
 
 # Phase 2: Downloader module imports (with graceful fallback for missing dependencies)
 try:
-    from .base_downloader import BaseDownloader
-    from .ecmwf_downloader import ECMWFDownloader
-    from .noaa_downloader import NOAADownloader
-    from .gfed_downloader import GFEDDownloader, GFEDReader
-    from .modis_downloader import MODISDownloader
-    from .downloader_factory import DownloaderFactory, RetryManager
-    from .data_source_config import DataSourceConfig
+    from base_downloader import BaseDownloader
+    from ecmwf_downloader import ECMWFDownloader
+    from noaa_downloader import NOAADownloader
+    from gfed_downloader import GFEDDownloader, GFEDReader
+    from modis_downloader import MODISDownloader
+    from downloader_factory import DownloaderFactory, RetryManager
+    from data_source_config import DataSourceConfig
 
     # All components available
     __all__ = [
