@@ -258,22 +258,30 @@ class BaseDownloader(ABC):
         """Return status of download operations"""
 ```
 
-### Common Utilities
+### Individual Downloader Access
 ```python
-class DownloadManager:
-    """Manage multiple downloader instances and coordinate operations"""
+class DownloaderFactory:
+    """Simple factory to create individual downloader instances"""
 
-    def __init__(self, config):
-        self.downloaders = self._initialize_downloaders(config)
+    @staticmethod
+    def create_downloader(source, config):
+        """Create downloader instance for specific source"""
+        if source == 'ecmwf':
+            return ECMWFDownloader(**config.get('ecmwf', {}))
+        elif source == 'noaa':
+            return NOAADownloader(**config.get('noaa', {}))
+        elif source == 'gfed':
+            return GFEDDownloader(**config.get('gfed', {}))
+        elif source == 'modis':
+            return MODISDownloader(**config.get('modis', {}))
+        else:
+            raise ValueError(f"Unknown downloader source: {source}")
 
-    def download_all_sources(self, years, months=None):
-        """Coordinate downloads from all data sources"""
-
-    def check_dependencies(self):
-        """Verify all external dependencies are available"""
-
-    def generate_download_report(self):
-        """Generate summary report of all download operations"""
+    @staticmethod
+    def check_downloader_dependencies(source):
+        """Check dependencies for specific downloader"""
+        # Simple dependency checks for individual downloaders
+        pass
 ```
 
 ## 2.6 Error Handling and Retry Logic
@@ -309,45 +317,31 @@ def quarantine_corrupted_files(filepath, quarantine_dir):
     """Move corrupted files to quarantine directory"""
 ```
 
-## 2.7 Caching and Performance
+## 2.7 Simple Caching
 
-### Intelligent Caching
+### Basic File Caching
 ```python
-class DataCache:
-    """Manage local caching of downloaded data"""
+class SimpleDataCache:
+    """Simple local file caching without complex management"""
 
-    def __init__(self, cache_dir, max_size_gb=10):
+    def __init__(self, cache_dir):
         self.cache_dir = cache_dir
-        self.max_size_gb = max_size_gb
+        os.makedirs(cache_dir, exist_ok=True)
+
+    def is_cached(self, cache_key):
+        """Check if file exists in cache"""
+        cache_path = os.path.join(self.cache_dir, cache_key)
+        return os.path.exists(cache_path)
+
+    def get_cache_path(self, cache_key):
+        """Get path to cached file"""
+        return os.path.join(self.cache_dir, cache_key)
 
     def cache_file(self, source_path, cache_key):
-        """Cache downloaded file with metadata"""
-
-    def get_cached_file(self, cache_key):
-        """Retrieve file from cache if available and valid"""
-
-    def cleanup_old_cache(self):
-        """Remove old cached files to manage disk space"""
-
-    def get_cache_statistics(self):
-        """Return cache usage statistics"""
-```
-
-### Parallel Downloads
-```python
-from concurrent.futures import ThreadPoolExecutor
-
-class ParallelDownloader:
-    """Coordinate parallel downloads for efficiency"""
-
-    def __init__(self, max_workers=4):
-        self.max_workers = max_workers
-
-    def download_multiple_files(self, download_tasks):
-        """Download multiple files in parallel"""
-
-    def download_multiple_years(self, downloader, years):
-        """Download data for multiple years in parallel"""
+        """Copy file to cache"""
+        cache_path = self.get_cache_path(cache_key)
+        shutil.copy2(source_path, cache_path)
+        return cache_path
 ```
 
 ## 2.8 Configuration and Credentials
@@ -424,19 +418,19 @@ tests/downloaders/
 ## 2.10 Success Criteria
 
 ### Functional Requirements
-- [ ] Successfully download data from all four sources
-- [ ] Handle authentication and access requirements
-- [ ] Robust error handling and retry mechanisms
-- [ ] Consistent data format and metadata
+- [ ] Successfully download data from all four sources independently
+- [ ] Handle authentication and access requirements for each source
+- [ ] Simple error handling and retry mechanisms for individual downloads
+- [ ] Consistent data format and metadata for each source
 
-### Performance Requirements
-- [ ] Efficient parallel downloads where possible
-- [ ] Intelligent caching to minimize re-downloads
-- [ ] Reasonable memory usage for large files
-- [ ] Progress tracking and user feedback
+### Simplicity Requirements
+- [ ] Individual downloader operations (no coordination between sources)
+- [ ] Remove complex parallel download management
+- [ ] Simple file caching without intelligent management
+- [ ] Single-purpose download operations suitable for MAAP jobs
 
 ### Quality Requirements
-- [ ] Comprehensive error logging and reporting
-- [ ] Data validation and integrity checking
-- [ ] Resumable downloads for large files
-- [ ] Clear documentation and usage examples
+- [ ] Basic error logging for individual download operations
+- [ ] Data validation and integrity checking for each file
+- [ ] Simple retry logic for network failures
+- [ ] Clear documentation and usage examples for individual downloaders
