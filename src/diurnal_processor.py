@@ -67,15 +67,21 @@ class DiurnalProcessor:
         self.logger = logging.getLogger(self.__class__.__name__)
         self.processing_logger = ProcessingLogger()
 
-        # Default processing parameters - MATLAB equivalent setup
-        self.years_range = (2015, 2020)  # MATLAB: years_to_process default
-        self.region_bounds = [60, -130, 20, -50]  # CONUS: N, W, S, E
+        # Get configuration for CONUS diurnal processing
+        diurnal_config = self.config.get_workflow_config('conus_diurnal')
+
+        # Processing parameters from configuration
+        years_range_list = diurnal_config.get('years_range', [2015, 2020])
+        self.years_range = tuple(years_range_list)  # Convert to tuple for backward compatibility
+        self.region_bounds = diurnal_config.get('region', [60, -130, 20, -50])  # CONUS: N, W, S, E
+        self.cms_experiment_id = diurnal_config.get('cms_experiment_id', 'CMS_V1')
+        self.output_base_dir = diurnal_config.get('output_base_dir', './DUMPFILES')
 
         # Setup auxiliary data structure - MATLAB: AUX structure setup
         self.aux_data = self._setup_auxiliary_data()
 
         # Initialize coordinate system for CONUS
-        self.coordinate_grid = StandardGrids.create_conus_05deg_grid()
+        self.coordinate_grid = StandardGrids.create_conus_half_degree()
 
     def _setup_auxiliary_data(self) -> Dict[str, Any]:
         """
@@ -87,10 +93,13 @@ class DiurnalProcessor:
         Returns:
             dict: Auxiliary data configuration
         """
+        # Create dynamic destination paths based on configuration
+        destination_path_base = f"{self.output_base_dir}/CARDAMOM_CONUS_DIURNAL_FLUXES_{self.cms_experiment_id}"
+
         return {
             'destination_path': {
-                1: 'DUMPFILES/CARDAMOM_CONUS_DIURNAL_FLUXES_JUL25_EXP1/',
-                2: 'DUMPFILES/CARDAMOM_CONUS_DIURNAL_FLUXES_JUL25/'
+                1: f"{destination_path_base}_EXP1/",
+                2: f"{destination_path_base}_EXP2/"
             },
             'lon_range': [-124.7500, -65.2500],  # MATLAB: AUX.lon_range
             'lat_range': [24.7500, 60.2500],     # MATLAB: AUX.lat_range
@@ -324,7 +333,7 @@ class DiurnalProcessor:
         # Import ERA5 loader (will be implemented)
         from .met_driver_loader import ERA5DiurnalLoader
 
-        loader = ERA5DiurnalLoader()
+        loader = ERA5DiurnalLoader(config=self.config)
         ssrd, skt = loader.load_diurnal_fields(month, year)
 
         return ssrd, skt
