@@ -10,7 +10,7 @@ matlab-migration/CARDAMOM_MAPS_READ_GFED_NOV24.m
 
 import numpy as np
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 
 from gfed_downloader import GFEDDownloader, GFEDReader
@@ -312,19 +312,30 @@ class GFEDProcessor:
     Based on MATLAB function CARDAMOM_MAPS_READ_GFED_NOV24(RES) lines 2-81
     """
 
-    def __init__(self, data_dir: str = "./DATA/GFED4/"):
+    def __init__(self, data_dir: str = "./DATA/GFED4/", config: Optional[Any] = None):
         """
         Initialize GFED processor.
 
         Args:
             data_dir: Directory containing GFED HDF5 files
+            config: CardamomConfig instance for configuration-driven setup
         """
         self.data_dir = data_dir
         self.logger = logging.getLogger(self.__class__.__name__)
         self.downloader = GFEDDownloader(data_dir)
 
-        # MATLAB equivalent: YEARS=2001:2023 (line 9)
-        self.default_years = list(range(2001, 2024))  # 2001-2023
+        # Get configuration parameters
+        if config:
+            gfed_config = config.get_downloader_config('gfed')
+            default_years_range = gfed_config.get('default_years', [2001, 2024])
+            self.default_years = list(range(default_years_range[0], default_years_range[1]))
+            self.historical_cutoff_year = gfed_config.get('historical_cutoff_year', 2016)
+            self.gap_fill_reference_period = gfed_config.get('gap_fill_reference_period', [2001, 2016])
+        else:
+            # Fallback defaults
+            self.default_years = list(range(2001, 2024))  # 2001-2023
+            self.historical_cutoff_year = 2016
+            self.gap_fill_reference_period = [2001, 2016]
 
     def process_gfed_data(self,
                          target_resolution: str = '05deg',
@@ -669,27 +680,28 @@ class GFEDProcessor:
         GFED.BA(:,:,idxdec16+1:end)= BAextra;
         GFED.BA=nan2zero(GFED.BA);
         """
-        self.logger.info("Applying gap-filling for years after 2016")
+        self.logger.info(f"Applying gap-filling for years after {self.historical_cutoff_year}")
 
-        # MATLAB: idxdec16=16*12 (index for end of 2016)
-        idx_dec_2016 = 16 * 12  # 192 months (end of 2016)
+        # Calculate index for end of historical cutoff year
+        cutoff_months = (self.historical_cutoff_year - self.gap_fill_reference_period[0]) * 12
+        idx_cutoff = cutoff_months
 
-        if gfed_data['BA'].shape[2] <= idx_dec_2016:
-            # No years after 2016 to fill
+        if gfed_data['BA'].shape[2] <= idx_cutoff:
+            # No years after cutoff to fill
             return gfed_data
 
         ba_data = gfed_data['BA'].copy()
         firec_data = gfed_data['FireC'].copy()
 
-        # Calculate number of months after 2016
+        # Calculate number of months after cutoff year
         end_year = max(years)
-        n_months_after_2016 = (end_year - 2016) * 12
+        n_months_after_cutoff = (end_year - self.historical_cutoff_year) * 12
 
         # Apply gap-filling for each month
-        for m in range(n_months_after_2016):
-            # Monthly climatology from reference period (2001-2016)
+        for m in range(n_months_after_cutoff):
+            # Monthly climatology from reference period
             # MATLAB: m:12:idxdec16 selects same month across all years
-            month_indices = np.arange(m, idx_dec_2016, 12)
+            month_indices = np.arange(m, idx_cutoff, 12)
 
             # Calculate BA/FireC ratio for this month across reference years
             ba_monthly = ba_data[:, :, month_indices]
@@ -705,7 +717,7 @@ class GFEDProcessor:
                 ba_firec_ratio[~np.isfinite(ba_firec_ratio)] = 0
 
             # Apply ratio to emission in target year
-            target_month_idx = idx_dec_2016 + m
+            target_month_idx = idx_cutoff + m
             if target_month_idx < ba_data.shape[2]:
                 target_firec = firec_data[:, :, target_month_idx]
                 ba_extra = ba_firec_ratio * target_firec
@@ -714,7 +726,7 @@ class GFEDProcessor:
         # Clean up NaN values (MATLAB: nan2zero)
         ba_data = nan_to_zero(ba_data)
 
-        self.logger.info(f"Gap-filling completed for {n_months_after_2016} months after 2016")
+        self.logger.info(f"Gap-filling completed for {n_months_after_cutoff} months after {self.historical_cutoff_year}")
         return {'BA': ba_data, 'FireC': firec_data}
 
     def _create_temporal_coordinates(self, start_year: int, end_year: int) -> Tuple[np.ndarray, np.ndarray]:
