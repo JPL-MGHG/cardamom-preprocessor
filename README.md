@@ -19,10 +19,12 @@ The CARDAMOM Preprocessor transforms raw Earth observation data into CARDAMOM-re
 
 The system is organized into 8 phases, each providing specific functionality:
 
-### **Phase 1: Core Framework** ✅
-- Data orchestration and coordinate systems
-- NetCDF infrastructure and scientific utilities
-- Configuration management and validation
+### **Phase 1: Core Framework** ✅ **COMPLETE**
+- Main orchestration with CARDAMOMProcessor class
+- Unified configuration system with environment variable support
+- Complete NetCDF infrastructure with MATLAB equivalence
+- Coordinate systems and scientific utilities
+- Error handling and recovery with resumable processing
 
 ### **Phase 2: Data Downloaders** ✅
 - ECMWF meteorological data downloader
@@ -77,8 +79,9 @@ conda activate cardamom-ecmwf-downloader
 ```python
 # Import core functionality
 from src import (
-    # Phase 1: Core components
-    CARDAMOMProcessor, CoordinateGrid,
+    # Phase 1: Core components (COMPLETE)
+    CARDAMOMProcessor, CardamomConfig,
+    CARDAMOMNetCDFWriter, StandardGrids,
 
     # Phase 2: Data downloaders
     ECMWFDownloader, NOAADownloader, GFEDDownloader,
@@ -96,23 +99,35 @@ from src import (
     validate_temperature_range_extended
 )
 
-# Example: Download ERA5 meteorological data
-downloader = ECMWFDownloader()
-downloader.download_cardamom_monthly_drivers(years=[2020], months=[1,2,3])
+# Example: Complete workflow using Phase 1 orchestration
+processor = CARDAMOMProcessor()
+
+# Process global monthly data with error recovery and progress tracking
+result = processor.process_batch(
+    workflow_type='global_monthly',
+    years=[2020, 2021],
+    months=[1, 2, 3],
+    show_progress=True
+)
+print(f"Success: {result['successful_combinations']}")
+
+# Process CONUS diurnal data (integrates with Phase 4)
+diurnal_result = processor.process_conus_diurnal(
+    years=[2020],
+    months=[6, 7, 8]
+)
+print(f"Diurnal processing: {diurnal_result['status']}")
+
+# Example: Configuration management
+config = CardamomConfig.create_template_config('minimal')
+processor = CARDAMOMProcessor(config_file=config)
 
 # Example: Use scientific functions
 import numpy as np
-
-# Calculate VPD using MATLAB-equivalent function
 temp_max_c = np.array([25, 30, 35])  # °C
 dewpoint_c = np.array([15, 18, 20])  # °C
 vpd_hpa = calculate_vapor_pressure_deficit_matlab(temp_max_c, dewpoint_c)
 print(f"VPD: {vpd_hpa} hPa")  # Expected: [11.7, 19.4, 29.8] hPa
-
-# Validate data quality
-temp_data = np.random.randn(1000) * 10 + 285  # K
-report = validate_temperature_range_extended(temp_data)
-print(report.summary())
 ```
 
 ### Command Line Interface
@@ -131,6 +146,7 @@ python ecmwf/ecmwf_downloader.py cardamom-monthly -y 2020 -m 1-3
 ## 📚 Documentation
 
 ### Component Documentation
+- **[Phase 1 Core Framework](plans/README_PHASE1.md)** - Main orchestration and infrastructure ✅ **NEW**
 - **[ECMWF Downloader](ecmwf/README.md)** - ERA5 meteorological data download
 - **[Phase 2 Downloaders](plans/README_PHASE2.md)** - Multi-source data acquisition
 - **[Phase 3 GFED](plans/README_PHASE3.md)** - Fire emissions processing
@@ -207,11 +223,11 @@ conda activate cardamom-ecmwf-downloader
 
 ### Phase Implementation Status
 
-- ✅ **Phase 1**: Core Framework
-- ✅ **Phase 2**: Data Downloaders
-- ✅ **Phase 3**: GFED Processing
-- ✅ **Phase 4**: Diurnal Flux Processing
-- ✅ **Phase 8**: Scientific Functions Library
+- ✅ **Phase 1**: Core Framework *(Complete with CARDAMOMProcessor orchestration)*
+- ✅ **Phase 2**: Data Downloaders *(ECMWF, NOAA, GFED, MODIS)*
+- ✅ **Phase 3**: GFED Processing *(Gap-filling and multi-resolution)*
+- ✅ **Phase 4**: Diurnal Flux Processing *(CONUS hourly downscaling)*
+- ✅ **Phase 8**: Scientific Functions Library *(Atmospheric & carbon cycle utilities)*
 - 🚧 **Phase 6**: Pipeline Management *(planned)*
 - 🚧 **Phase 7**: Enhanced CLI *(planned)*
 
