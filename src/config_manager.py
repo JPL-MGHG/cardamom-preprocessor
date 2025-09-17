@@ -105,7 +105,12 @@ class CardamomConfig:
                 },
                 'netcdf_template': '3D',
                 'time_aggregation': 'hourly',
-                'diurnal_hours': list(range(24))
+                'diurnal_hours': list(range(24)),
+                'years_range': [2015, 2020],  # Default processing years
+                'cms_experiment_id': 'CMS_V1',  # Default CMS experiment identifier
+                'output_base_dir': './DUMPFILES',  # Base directory for outputs
+                'data_source_dir': './DATA',  # Base directory for input data
+                'era5_diurnal_subdir': 'ERA5_CUSTOM/CONUS_DIURNAL'  # ERA5 diurnal data subdirectory
             },
             'downloaders': {
                 'era5': {
@@ -120,7 +125,10 @@ class CardamomConfig:
                 'gfed': {
                     'username': None,  # Set via environment
                     'password': None,  # Set via environment
-                    'hdf5_chunks': True
+                    'hdf5_chunks': True,
+                    'default_years': [2001, 2024],  # Default year range for GFED processing
+                    'historical_cutoff_year': 2016,  # Year after which beta versions are used
+                    'gap_fill_reference_period': [2001, 2016]  # Reference period for gap-filling
                 },
                 'modis': {
                     'earthdata_username': None,  # Set via environment
