@@ -19,9 +19,9 @@ import os
 import numpy as np
 import xarray as xr
 import logging
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Any
 
-from validation import validate_temperature_data, validate_radiation_data
+from validation import validate_physical_ranges
 
 
 class ERA5DiurnalLoader:
@@ -32,14 +32,26 @@ class ERA5DiurnalLoader:
     MATLAB Reference: load_era5_diurnal_fields_new.m
     """
 
-    def __init__(self, data_dir: str = "./DATA/ERA5_CUSTOM/CONUS_2015_2020_DIURNAL/"):
+    def __init__(self, data_dir: Optional[str] = None, config: Optional[Any] = None):
         """
         Initialize ERA5 diurnal loader.
 
         Args:
-            data_dir: Directory containing ERA5 hourly NetCDF files
+            data_dir: Directory containing ERA5 hourly NetCDF files (overrides config)
+            config: CardamomConfig instance for configuration-driven setup
         """
-        self.data_dir = data_dir
+        # Determine data directory from config or parameter
+        if data_dir is not None:
+            self.data_dir = data_dir
+        elif config is not None:
+            diurnal_config = config.get_workflow_config('conus_diurnal')
+            base_dir = diurnal_config.get('data_source_dir', './DATA')
+            era5_subdir = diurnal_config.get('era5_diurnal_subdir', 'ERA5_CUSTOM/CONUS_DIURNAL')
+            self.data_dir = os.path.join(base_dir, era5_subdir)
+        else:
+            # Fallback to default if neither provided
+            self.data_dir = "./DATA/ERA5_CUSTOM/CONUS_DIURNAL/"
+
         self.logger = logging.getLogger(self.__class__.__name__)
 
         # File naming pattern - MATLAB: ERA5 file naming convention
@@ -176,14 +188,14 @@ class ERA5DiurnalLoader:
         try:
             # Convert temperature to Celsius for validation
             skt_celsius = skt - 273.15
-            validate_temperature_data(skt_celsius.flatten())
+            validate_physical_ranges(skt_celsius.flatten(), "temperature")
             self.logger.debug("Temperature validation passed")
         except Exception as e:
             self.logger.warning(f"Temperature validation warning: {e}")
 
         try:
             # Validate radiation data
-            validate_radiation_data(ssrd.flatten())
+            validate_physical_ranges(ssrd.flatten(), "radiation")
             self.logger.debug("Radiation validation passed")
         except Exception as e:
             self.logger.warning(f"Radiation validation warning: {e}")
