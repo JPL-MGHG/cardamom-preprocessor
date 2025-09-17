@@ -46,9 +46,11 @@ The system is organized into 8 phases, each providing specific functionality:
 - CARDAMOM-compliant NetCDF file generation
 - Template-based output with proper metadata
 
-### **Phase 6: Pipeline Management** 🚧 *Planned*
-- Unified workflow orchestration
-- Component coordination and state management
+### **Phase 6: CBF Input Generation** ✅ **NEW!**
+- Separated download/processing workflow for resilient data handling
+- CBF (CARDAMOM Binary Format) meteorological driver file generation
+- Compatible with `erens_cbf_code.py` input requirements
+- 80% coverage from ERA5 data with external data integration
 
 ### **Phase 7: Enhanced CLI** 🚧 *Planned*
 - Extended command-line interface
@@ -92,6 +94,9 @@ from src import (
     # Phase 4: Diurnal processing
     DiurnalProcessor,
 
+    # Phase 6: CBF input generation (NEW!)
+    CBFMetProcessor,
+
     # Phase 8: Scientific functions
     saturation_pressure_water_matlab,
     calculate_vapor_pressure_deficit_matlab,
@@ -122,6 +127,29 @@ print(f"Diurnal processing: {diurnal_result['status']}")
 config = CardamomConfig.create_template_config('minimal')
 processor = CARDAMOMProcessor(config_file=config)
 
+# Example: CBF meteorological processing (Phase 6)
+from src.ecmwf_downloader import ECMWFDownloader
+from src.cbf_met_processor import CBFMetProcessor
+
+# Separated workflow for resilient processing
+downloader = ECMWFDownloader()
+
+# Step 1: Download ERA5 meteorological data
+download_result = downloader.download_cbf_met_variables(
+    variables=['2m_temperature', 'total_precipitation', 'surface_solar_radiation_downwards'],
+    years=[2020], months=[1, 2, 3],
+    download_dir='./era5_downloads'
+)
+
+# Step 2: Process downloaded files to CBF format (independent of download)
+processor = CBFMetProcessor()
+cbf_file = processor.process_downloaded_files_to_cbf_met(
+    input_dir='./era5_downloads',
+    output_filename='AllMet05x05_LFmasked.nc',  # Compatible with erens_cbf_code.py
+    land_fraction_file='land_fraction.nc'  # Optional land masking
+)
+print(f"CBF file generated: {cbf_file}")  # 8/10 variables from ERA5 (80% coverage)
+
 # Example: Use scientific functions
 import numpy as np
 temp_max_c = np.array([25, 30, 35])  # °C
@@ -133,6 +161,10 @@ print(f"VPD: {vpd_hpa} hPa")  # Expected: [11.7, 19.4, 29.8] hPa
 ### Command Line Interface
 
 ```bash
+# CBF meteorological processing (Phase 6)
+cd src && python cbf_cli.py list-variables           # List supported CBF variables
+cd src && python cbf_cli.py process-met ./downloads/ --output AllMet05x05_LFmasked.nc
+
 # Download CARDAMOM meteorological drivers
 python ecmwf/ecmwf_downloader.py cardamom-monthly -y 2020 -m 1-3
 
@@ -141,6 +173,7 @@ python ecmwf/ecmwf_downloader.py cardamom-monthly -y 2020 -m 1-3
 
 # Run tests
 .venv/bin/python -m pytest tests/ -v
+.venv/bin/python test_cbf_met.py                     # Test CBF processing
 ```
 
 ## 📚 Documentation
@@ -151,6 +184,7 @@ python ecmwf/ecmwf_downloader.py cardamom-monthly -y 2020 -m 1-3
 - **[Phase 2 Downloaders](plans/README_PHASE2.md)** - Multi-source data acquisition
 - **[Phase 3 GFED](plans/README_PHASE3.md)** - Fire emissions processing
 - **[Phase 4 Diurnal](plans/README_PHASE4.md)** - Hourly flux downscaling
+- **[Phase 6 CBF Input Generation](plans/phase6_cbf_input_pipeline.md)** - CBF meteorological drivers ✅ **NEW**
 - **[Phase 8 Scientific Functions](plans/README_PHASE8.md)** - Utility function library
 
 ### Development Guidelines
@@ -227,8 +261,8 @@ conda activate cardamom-ecmwf-downloader
 - ✅ **Phase 2**: Data Downloaders *(ECMWF, NOAA, GFED, MODIS)*
 - ✅ **Phase 3**: GFED Processing *(Gap-filling and multi-resolution)*
 - ✅ **Phase 4**: Diurnal Flux Processing *(CONUS hourly downscaling)*
+- ✅ **Phase 6**: CBF Input Generation *(Separated workflow, 80% ERA5 coverage)*
 - ✅ **Phase 8**: Scientific Functions Library *(Atmospheric & carbon cycle utilities)*
-- 🚧 **Phase 6**: Pipeline Management *(planned)*
 - 🚧 **Phase 7**: Enhanced CLI *(planned)*
 
 ## 📄 License

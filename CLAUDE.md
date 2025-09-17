@@ -549,3 +549,4 @@ These standards ensure that all code in the CARDAMOM preprocessor remains access
 - keep testing simple not too extensive
 - remember to look at matlab-migration/cardamom-matlab for matlab functions
 - do not use relative imports as this is a python package
+- remember that ultimately we need to create outputs that can be used in @matlab-migration/erens_cbf_code.py
