@@ -47,7 +47,7 @@ class CBFMetProcessor:
 
         # Setup logging
         import logging
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = setup_cardamom_logging(log_level="DEBUG")
 
         # CBF variable requirements from erens_cbf_code.py (original names before internal renaming)
         self.cbf_met_variables = [
@@ -75,6 +75,135 @@ class CBFMetProcessor:
             'STRD': {'from': 'J m-2', 'to': 'W m-2', 'method': 'radiation_monthly'},
             'SSRD': {'from': 'J m-2', 'to': 'W m-2', 'method': 'radiation_monthly'},
         }
+
+        # Setup variable and coordinate name mappings for ERA5 abbreviations
+        self.era5_name_mapping = self._setup_era5_name_mapping()
+        self.coordinate_name_mapping = self._setup_coordinate_name_mapping()
+
+    def _setup_era5_name_mapping(self) -> Dict[str, List[str]]:
+        """
+        Mapping of ERA5 variable names to possible alternative names in NetCDF files.
+
+        ECMWF returns abbreviated variable names in downloaded files that differ
+        from the full names used in API requests. This mapping handles the conversion.
+
+        Returns:
+            dict: Mapping from full variable names to list of alternative names
+        """
+        return {
+            # Core CARDAMOM meteorological variables
+            "2m_temperature": ["2m_temperature", "t2m", "T2M"],
+            "2m_dewpoint_temperature": ["2m_dewpoint_temperature", "d2m", "D2M"],
+            "surface_solar_radiation_downwards": ["surface_solar_radiation_downwards", "ssrd", "SSRD"],
+            "surface_thermal_radiation_downwards": ["surface_thermal_radiation_downwards", "strd", "STRD"],
+            "total_precipitation": ["total_precipitation", "tp", "TP"],
+            "skin_temperature": ["skin_temperature", "skt", "SKT"],
+            "snowfall": ["snowfall", "sf", "SF"],
+            # Additional meteorological variables
+            "10m_u_component_of_wind": ["10m_u_component_of_wind", "u10", "U10"],
+            "10m_v_component_of_wind": ["10m_v_component_of_wind", "v10", "V10"],
+            "mean_sea_level_pressure": ["mean_sea_level_pressure", "msl", "MSL"],
+            "surface_pressure": ["surface_pressure", "sp", "SP"]
+        }
+
+    def _setup_coordinate_name_mapping(self) -> Dict[str, List[str]]:
+        """
+        Mapping of coordinate names to possible alternative names in NetCDF files.
+
+        ECMWF files may use different coordinate names like 'valid_time' instead of 'time'.
+
+        Returns:
+            dict: Mapping from standard coordinate names to alternatives
+        """
+        return {
+            "time": ["time", "valid_time"],
+            "latitude": ["latitude", "lat"],
+            "longitude": ["longitude", "lon"]
+        }
+
+    def _get_actual_variable_name(self, requested_var: str, dataset: 'xr.Dataset') -> str:
+        """
+        Find the actual variable name in the dataset for a requested variable.
+
+        Args:
+            requested_var: The variable name as requested in the API call
+            dataset: The xarray Dataset to search
+
+        Returns:
+            str: The actual variable name found in the dataset, or None if not found
+        """
+        all_vars = set(dataset.data_vars.keys()) | set(dataset.coords.keys())
+
+        # First try the requested name directly
+        if requested_var in all_vars:
+            return requested_var
+
+        # Try alternative names from the variable mapping
+        alternative_names = self.era5_name_mapping.get(requested_var, [])
+        for alt_name in alternative_names:
+            if alt_name in all_vars:
+                self.logger.info(f"Found variable '{requested_var}' as '{alt_name}' in downloaded file")
+                return alt_name
+
+        # Variable not found under any known name
+        available_vars = list(dataset.data_vars.keys())
+        self.logger.warning(f"Variable '{requested_var}' not found in file. Available variables: {available_vars}")
+        return None
+
+    def _get_actual_coordinate_name(self, requested_coord: str, dataset: 'xr.Dataset') -> str:
+        """
+        Find the actual coordinate name in the dataset for a requested coordinate.
+
+        Args:
+            requested_coord: The coordinate name to find
+            dataset: The xarray Dataset to search
+
+        Returns:
+            str: The actual coordinate name found in the dataset, or requested_coord if not found
+        """
+        all_coords = set(dataset.coords.keys()) | set(dataset.dims.keys())
+
+        # First try the requested coordinate name directly
+        if requested_coord in all_coords:
+            return requested_coord
+
+        # Try alternative coordinate names from the mapping
+        alternative_names = self.coordinate_name_mapping.get(requested_coord, [])
+        for alt_name in alternative_names:
+            if alt_name in all_coords:
+                self.logger.info(f"Found coordinate '{requested_coord}' as '{alt_name}' in downloaded file")
+                return alt_name
+
+        # Coordinate not found under any known name, return requested name
+        self.logger.warning(f"Coordinate '{requested_coord}' not found in file. Available coordinates: {list(all_coords)}")
+        return requested_coord
+
+    def standardize_dataset_coordinates(self, dataset: 'xr.Dataset') -> 'xr.Dataset':
+        """
+        Standardize coordinate names in a dataset to use standard names.
+
+        Renames coordinates like 'valid_time' to 'time' for consistency.
+
+        Args:
+            dataset: The xarray Dataset to standardize
+
+        Returns:
+            xr.Dataset: Dataset with standardized coordinate names
+        """
+        rename_dict = {}
+
+        for standard_coord, alternatives in self.coordinate_name_mapping.items():
+            for alt_coord in alternatives[1:]:  # Skip first (standard) name
+                if alt_coord in dataset.coords or alt_coord in dataset.dims:
+                    if standard_coord not in dataset.coords and standard_coord not in dataset.dims:
+                        rename_dict[alt_coord] = standard_coord
+                        self.logger.info(f"Standardizing coordinate '{alt_coord}' to '{standard_coord}'")
+                        break
+
+        if rename_dict:
+            return dataset.rename(rename_dict)
+        else:
+            return dataset
 
     def process_downloaded_files_to_cbf_met(self,
                                           input_dir: str,
@@ -105,15 +234,15 @@ class CBFMetProcessor:
         self.logger.info(f"Output file: {output_filepath}")
 
         try:
-            # Step 1: Discover and categorize input files
-            file_catalog = self._catalog_input_files(input_path)
-            self.logger.info(f"Found {len(file_catalog)} ERA5 variable files")
+            # Step 1: Load all ERA5 files into unified dataset
+            unified_era5_dataset = self._load_unified_era5_dataset(input_path)
+            self.logger.info(f"Loaded unified ERA5 dataset with {len(unified_era5_dataset.data_vars)} variables")
 
-            # Step 2: Process core ERA5 variables
-            processed_variables = self._process_era5_variables(file_catalog)
+            # Step 2: Process core ERA5 variables from unified dataset
+            processed_variables = self._process_era5_variables(unified_era5_dataset)
 
             # Step 3: Calculate derived variables (VPD from temperature/dewpoint)
-            derived_variables = self._calculate_derived_variables(file_catalog)
+            derived_variables = self._calculate_derived_variables(unified_era5_dataset)
             processed_variables.update(derived_variables)
 
             # Step 4: Integrate external data (CO2, fire) if available
@@ -139,6 +268,9 @@ class CBFMetProcessor:
             # Step 7: Validate CBF file
             self._validate_cbf_file(cbf_filepath)
 
+            # Step 8: Clean up unified dataset
+            unified_era5_dataset.close()
+
             self.logger.info(f"CBF meteorological processing completed: {cbf_filepath}")
             return str(cbf_filepath)
 
@@ -147,59 +279,121 @@ class CBFMetProcessor:
             self.logger.error(error_msg)
             raise ValueError(error_msg)
 
-    def _catalog_input_files(self, input_dir: Path) -> Dict[str, List[str]]:
+    def _load_unified_era5_dataset(self, input_dir: Path) -> xr.Dataset:
         """
-        Catalog input NetCDF files by ERA5 variable type.
+        Load all ERA5 NetCDF files into a unified dataset in memory.
+
+        This replaces the previous approach of cataloging files and loading them
+        multiple times per variable. Instead, we load all files once and process
+        variables from the unified dataset.
 
         Args:
             input_dir: Directory containing ERA5 NetCDF files
 
         Returns:
-            dict: Mapping of ERA5 variable names to file paths
+            xr.Dataset: Unified dataset containing all available ERA5 variables
         """
-        file_catalog = {}
-
         # Search for NetCDF files
         nc_files = list(input_dir.glob("*.nc"))
         self.logger.info(f"Found {len(nc_files)} NetCDF files in {input_dir}")
 
-        # Categorize files by variable type
-        for era5_var in self.era5_to_cbf_mapping.keys():
-            matching_files = []
+        if not nc_files:
+            raise ValueError(f"No NetCDF files found in {input_dir}")
 
-            # Match files containing the variable name
-            for nc_file in nc_files:
-                filename = nc_file.name.lower()
-                var_name_normalized = era5_var.replace('_', '').replace('-', '')
+        # Track which variables we find
+        found_variables = set()
+        datasets_to_merge = []
 
-                if var_name_normalized in filename.replace('_', '').replace('-', ''):
-                    matching_files.append(str(nc_file))
-
-            if matching_files:
-                file_catalog[era5_var] = sorted(matching_files)
-                self.logger.info(f"Found {len(matching_files)} files for {era5_var}")
-            else:
-                self.logger.warning(f"No files found for ERA5 variable: {era5_var}")
-
-        # Also look for dewpoint temperature files for VPD calculation
-        dewpoint_files = []
+        # Load each file and collect variables
         for nc_file in nc_files:
-            filename = nc_file.name.lower()
-            if 'dewpoint' in filename or 'd2m' in filename:
-                dewpoint_files.append(str(nc_file))
+            try:
+                ds = xr.open_dataset(nc_file)
+                file_variables = list(ds.data_vars.keys())
 
-        if dewpoint_files:
-            file_catalog['2m_dewpoint_temperature'] = sorted(dewpoint_files)
-            self.logger.info(f"Found {len(dewpoint_files)} dewpoint files for VPD calculation")
+                # Log what we found
+                self.logger.debug(f"File {nc_file.name} contains variables: {file_variables}")
+                found_variables.update(file_variables)
 
-        return file_catalog
+                # Add to merge list
+                datasets_to_merge.append(ds)
 
-    def _process_era5_variables(self, file_catalog: Dict[str, List[str]]) -> Dict[str, xr.Dataset]:
+            except Exception as e:
+                self.logger.warning(f"Failed to read {nc_file}: {e}")
+
+        if not datasets_to_merge:
+            raise ValueError("No valid NetCDF files could be loaded")
+
+        # Combine all datasets into unified dataset
+        self.logger.info("Combining datasets into unified ERA5 dataset")
+
+        try:
+            if len(datasets_to_merge) == 1:
+                unified_dataset = datasets_to_merge[0]
+            else:
+                # Try to merge along time dimension if possible, otherwise use merge
+                try:
+                    # Sort datasets by time if time dimension exists
+                    datasets_with_time = []
+                    datasets_without_time = []
+
+                    for ds in datasets_to_merge:
+                        # Rename valid_time to time
+                        if "valid_time" in ds.dims or "valid_time" in ds.coords:
+                            ds = ds.rename({"valid_time": "time"})
+
+
+                        if 'time' in ds.dims and len(ds.time) > 0:
+                            datasets_with_time.append(ds)
+                        else:
+                            datasets_without_time.append(ds)
+
+                    if datasets_with_time:
+                        # Sort by first time value
+                        datasets_with_time.sort(key=lambda ds: ds.time.values[0])
+
+                        # Concatenate along time dimension
+                        time_combined = xr.concat(datasets_with_time, dim='time')
+
+                        # Merge with any datasets without time dimension
+                        if datasets_without_time:
+                            unified_dataset = xr.merge([time_combined] + datasets_without_time)
+                        else:
+                            unified_dataset = time_combined
+                    else:
+                        # No time dimension, just merge
+                        unified_dataset = xr.merge(datasets_to_merge)
+
+                except Exception as e:
+                    self.logger.warning(f"Failed to concatenate along time: {e}, using merge instead")
+                    unified_dataset = xr.merge(datasets_to_merge)
+
+        except Exception as e:
+            self.logger.error(f"Failed to combine datasets: {e}")
+            raise ValueError(f"Could not create unified dataset: {e}")
+
+        # Report what we have in the unified dataset
+        available_vars = list(unified_dataset.data_vars.keys())
+        self.logger.info(f"Unified dataset contains {len(available_vars)} variables: {available_vars}")
+
+        # Check for expected variables
+        expected_vars = list(self.era5_to_cbf_mapping.keys()) + ['2m_dewpoint_temperature']
+        missing_vars = []
+        for var in expected_vars:
+            actual_var_name = self._get_actual_variable_name(var, unified_dataset)
+            if actual_var_name is None:
+                missing_vars.append(var)
+
+        if missing_vars:
+            self.logger.warning(f"Expected variables not found: {missing_vars}")
+
+        return unified_dataset
+
+    def _process_era5_variables(self, unified_dataset: xr.Dataset) -> Dict[str, xr.Dataset]:
         """
-        Process core ERA5 variables into CBF format.
+        Process core ERA5 variables into CBF format from unified dataset.
 
         Args:
-            file_catalog: Mapping of ERA5 variables to file paths
+            unified_dataset: Unified dataset containing all ERA5 variables
 
         Returns:
             dict: Processed variables as xarray Datasets
@@ -207,26 +401,27 @@ class CBFMetProcessor:
         processed_variables = {}
 
         for era5_var, cbf_var in self.era5_to_cbf_mapping.items():
-            if era5_var not in file_catalog:
-                self.logger.warning(f"No files found for {era5_var}, skipping")
+            # Get actual variable name from mapping
+            actual_var_name = self._get_actual_variable_name(era5_var, unified_dataset)
+            if actual_var_name is None:
+                self.logger.warning(f"Variable {era5_var} not found in unified dataset, skipping")
                 continue
 
-            self.logger.info(f"Processing {era5_var} -> {cbf_var}")
+            self.logger.info(f"Processing {era5_var} (found as {actual_var_name}) -> {cbf_var}")
 
             try:
-                # Load and combine files for this variable
-                variable_files = file_catalog[era5_var]
-                combined_data = self._load_and_combine_files(variable_files, era5_var)
+                # Extract variable from unified dataset
+                variable_data = unified_dataset[[actual_var_name]]
 
                 # Handle special cases
                 if era5_var == '2m_temperature':
                     # Derive TMIN and TMAX from temperature data
-                    temp_min, temp_max = self._derive_temperature_extremes(combined_data)
+                    temp_min, temp_max = self._derive_temperature_extremes(variable_data)
                     processed_variables['TMIN'] = temp_min
                     processed_variables['TMAX'] = temp_max
                 else:
                     # Apply unit conversion if needed
-                    converted_data = self._apply_unit_conversion(combined_data, cbf_var)
+                    converted_data = self._apply_unit_conversion(variable_data, cbf_var)
                     processed_variables[cbf_var] = converted_data
 
             except Exception as e:
@@ -235,12 +430,12 @@ class CBFMetProcessor:
 
         return processed_variables
 
-    def _calculate_derived_variables(self, file_catalog: Dict[str, List[str]]) -> Dict[str, xr.Dataset]:
+    def _calculate_derived_variables(self, unified_dataset: xr.Dataset) -> Dict[str, xr.Dataset]:
         """
         Calculate derived variables like VPD from temperature and dewpoint.
 
         Args:
-            file_catalog: Mapping of ERA5 variables to file paths
+            unified_dataset: Unified dataset containing all ERA5 variables
 
         Returns:
             dict: Derived variables as xarray Datasets
@@ -248,19 +443,17 @@ class CBFMetProcessor:
         derived_variables = {}
 
         # Calculate VPD if both temperature and dewpoint are available
-        if ('2m_temperature' in file_catalog and
-            '2m_dewpoint_temperature' in file_catalog):
+        temp_var = self._get_actual_variable_name('2m_temperature', unified_dataset)
+        dewpoint_var = self._get_actual_variable_name('2m_dewpoint_temperature', unified_dataset)
+
+        if (temp_var and dewpoint_var):
 
             self.logger.info("Calculating Vapor Pressure Deficit (VPD)")
 
             try:
-                # Load temperature data
-                temp_files = file_catalog['2m_temperature']
-                temp_data = self._load_and_combine_files(temp_files, '2m_temperature')
-
-                # Load dewpoint data
-                dewpoint_files = file_catalog['2m_dewpoint_temperature']
-                dewpoint_data = self._load_and_combine_files(dewpoint_files, '2m_dewpoint_temperature')
+                # Extract temperature and dewpoint data from unified dataset
+                temp_data = unified_dataset[[temp_var]]
+                dewpoint_data = unified_dataset[[dewpoint_var]]
 
                 # Calculate VPD
                 vpd_data = self._calculate_vpd_from_datasets(temp_data, dewpoint_data)
@@ -275,43 +468,6 @@ class CBFMetProcessor:
 
         return derived_variables
 
-    def _load_and_combine_files(self, file_paths: List[str], variable_name: str) -> xr.Dataset:
-        """
-        Load and combine multiple NetCDF files for a variable.
-
-        Args:
-            file_paths: List of NetCDF file paths
-            variable_name: ERA5 variable name
-
-        Returns:
-            xr.Dataset: Combined dataset
-        """
-        datasets = []
-
-        for file_path in file_paths:
-            try:
-                ds = xr.open_dataset(file_path)
-                datasets.append(ds)
-                self.logger.debug(f"Loaded {os.path.basename(file_path)}")
-            except Exception as e:
-                self.logger.warning(f"Failed to load {file_path}: {e}")
-
-        if not datasets:
-            raise ValueError(f"No valid datasets loaded for {variable_name}")
-
-        # Combine along time dimension if multiple files
-        if len(datasets) == 1:
-            combined = datasets[0]
-        else:
-            # Sort by time if time dimension exists
-            try:
-                datasets.sort(key=lambda ds: ds.time.values[0] if 'time' in ds.dims else 0)
-                combined = xr.concat(datasets, dim='time')
-            except Exception as e:
-                self.logger.warning(f"Failed to concatenate along time: {e}, using merge instead")
-                combined = xr.merge(datasets)
-
-        return combined
 
     def _derive_temperature_extremes(self, temp_dataset: xr.Dataset) -> tuple:
         """
@@ -323,24 +479,23 @@ class CBFMetProcessor:
         Returns:
             tuple: (TMIN dataset, TMAX dataset)
         """
-        # Get temperature variable (ERA5 uses standard names)
-        temp_var_names = ['2m_temperature', 't2m', 'temperature']
-        temp_var = None
+        # Get temperature variable using mapping system
+        temp_var_name = self._get_actual_variable_name('2m_temperature', temp_dataset)
 
-        for var_name in temp_var_names:
-            if var_name in temp_dataset.data_vars:
-                temp_var = temp_dataset[var_name]
-                break
-
-        if temp_var is None:
+        if temp_var_name is None:
             available_vars = list(temp_dataset.data_vars.keys())
             raise ValueError(f"Temperature variable not found. Available: {available_vars}")
 
+        temp_var = temp_dataset[temp_var_name]
+
+        # Get actual time coordinate name
+        time_coord = self._get_actual_coordinate_name('time', temp_dataset)
+
         # Calculate monthly extremes if we have sub-monthly data
-        if 'time' in temp_var.dims and len(temp_var.time) > 31:
+        if time_coord in temp_var.dims and len(temp_var[time_coord]) > 31:
             self.logger.info("Calculating monthly temperature extremes from sub-monthly data")
-            temp_min_monthly = temp_var.groupby('time.month').min(dim='time')
-            temp_max_monthly = temp_var.groupby('time.month').max(dim='time')
+            temp_min_monthly = temp_var.groupby(f'{time_coord}.month').min(dim=time_coord)
+            temp_max_monthly = temp_var.groupby(f'{time_coord}.month').max(dim=time_coord)
         else:
             # Already monthly data - use as is for both min and max
             self.logger.info("Using monthly temperature data as-is")
@@ -379,24 +534,15 @@ class CBFMetProcessor:
         Returns:
             xr.Dataset: VPD dataset
         """
-        # Get variable names
-        temp_var_names = ['2m_temperature', 't2m', 'temperature']
-        dewpoint_var_names = ['2m_dewpoint_temperature', 'd2m', 'dewpoint_temperature']
+        # Get variable names using mapping system
+        temp_var_name = self._get_actual_variable_name('2m_temperature', temp_dataset)
+        dewpoint_var_name = self._get_actual_variable_name('2m_dewpoint_temperature', dewpoint_dataset)
 
-        temp_var = None
-        for var_name in temp_var_names:
-            if var_name in temp_dataset.data_vars:
-                temp_var = temp_dataset[var_name]
-                break
-
-        dewpoint_var = None
-        for var_name in dewpoint_var_names:
-            if var_name in dewpoint_dataset.data_vars:
-                dewpoint_var = dewpoint_dataset[var_name]
-                break
-
-        if temp_var is None or dewpoint_var is None:
+        if temp_var_name is None or dewpoint_var_name is None:
             raise ValueError("Temperature or dewpoint variable not found")
+
+        temp_var = temp_dataset[temp_var_name]
+        dewpoint_var = dewpoint_dataset[dewpoint_var_name]
 
         # Align datasets spatially and temporally
         dewpoint_aligned = dewpoint_var.interp_like(temp_var, method='nearest')

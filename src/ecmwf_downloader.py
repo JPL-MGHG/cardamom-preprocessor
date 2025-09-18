@@ -10,9 +10,11 @@ import cdsapi
 import os
 import time
 import glob
+import zipfile
 from typing import List, Dict, Union, Any
 import logging
 import numpy as np
+import shutil
 import xarray as xr
 from base_downloader import BaseDownloader
 from atmospheric_science import calculate_vapor_pressure_deficit_matlab
@@ -36,7 +38,7 @@ class ECMWFDownloader(BaseDownloader):
                  area: List[float] = None,
                  grid: List[str] = None,
                  data_format: str = "netcdf",
-                 download_format: str = "unarchived",
+                 download_format: str = "zip",
                  output_dir: str = ".",
 ):
         """
@@ -47,7 +49,7 @@ class ECMWFDownloader(BaseDownloader):
                  Default: Global coverage [-89.75, -179.75, 89.75, 179.75]
             grid: Grid resolution as list (default: ["0.5/0.5"])
             data_format: Output format - "netcdf" or "grib" (default: "netcdf")
-            download_format: Download format (default: "unarchived")
+            download_format: Download format (default: "zip")
             output_dir: Directory for downloaded files
         """
         # Initialize base downloader
@@ -69,6 +71,10 @@ class ECMWFDownloader(BaseDownloader):
 
         # Setup variable registry with CARDAMOM-specific metadata
         self.variable_registry = self._setup_variable_registry()
+
+        # Setup variable and coordinate name mappings for ERA5 abbreviations
+        self.era5_name_mapping = self._setup_era5_name_mapping()
+        self.coordinate_name_mapping = self._setup_coordinate_name_mapping()
 
     def _setup_variable_registry(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -157,6 +163,136 @@ class ECMWFDownloader(BaseDownloader):
             }
         }
 
+    def _setup_era5_name_mapping(self) -> Dict[str, List[str]]:
+        """
+        Mapping of ERA5 variable names to possible alternative names in NetCDF files.
+
+        ECMWF returns abbreviated variable names in downloaded files that differ
+        from the full names used in API requests. This mapping handles the conversion.
+
+        Returns:
+            dict: Mapping from full variable names to list of alternative names
+        """
+        return {
+            # Core CARDAMOM meteorological variables
+            "2m_temperature": ["2m_temperature", "t2m", "T2M"],
+            "2m_dewpoint_temperature": ["2m_dewpoint_temperature", "d2m", "D2M"],
+            "surface_solar_radiation_downwards": ["surface_solar_radiation_downwards", "ssrd", "SSRD"],
+            "surface_thermal_radiation_downwards": ["surface_thermal_radiation_downwards", "strd", "STRD"],
+            "total_precipitation": ["total_precipitation", "tp", "TP"],
+            "skin_temperature": ["skin_temperature", "skt", "SKT"],
+            "snowfall": ["snowfall", "sf", "SF"],
+            # Additional meteorological variables
+            "10m_u_component_of_wind": ["10m_u_component_of_wind", "u10", "U10"],
+            "10m_v_component_of_wind": ["10m_v_component_of_wind", "v10", "V10"],
+            "mean_sea_level_pressure": ["mean_sea_level_pressure", "msl", "MSL"],
+            "surface_pressure": ["surface_pressure", "sp", "SP"]
+        }
+
+    def _setup_coordinate_name_mapping(self) -> Dict[str, List[str]]:
+        """
+        Mapping of coordinate names to possible alternative names in NetCDF files.
+
+        ECMWF files may use different coordinate names like 'valid_time' instead of 'time'.
+
+        Returns:
+            dict: Mapping from standard coordinate names to alternatives
+        """
+        return {
+            "time": ["time", "valid_time"],
+            "latitude": ["latitude", "lat"],
+            "longitude": ["longitude", "lon"]
+        }
+
+    def _get_actual_variable_name(self, requested_var: str, dataset: 'xr.Dataset') -> str:
+        """
+        Find the actual variable name in the dataset for a requested variable.
+
+        Checks the requested name and all known alternative names to find
+        what's actually present in the downloaded NetCDF file.
+
+        Args:
+            requested_var: The variable name as requested in the API call
+            dataset: The xarray Dataset to search
+
+        Returns:
+            str: The actual variable name found in the dataset, or None if not found
+        """
+        all_vars = set(dataset.data_vars.keys()) | set(dataset.coords.keys())
+
+        # First try the requested name directly
+        if requested_var in all_vars:
+            return requested_var
+
+        # Try alternative names from the variable mapping
+        alternative_names = self.era5_name_mapping.get(requested_var, [])
+        for alt_name in alternative_names:
+            if alt_name in all_vars:
+                self.logger.info(f"Found variable '{requested_var}' as '{alt_name}' in downloaded file")
+                return alt_name
+
+        # Variable not found under any known name
+        available_vars = list(dataset.data_vars.keys())
+        self.logger.warning(f"Variable '{requested_var}' not found in file. Available variables: {available_vars}")
+        return None
+
+    def _get_actual_coordinate_name(self, requested_coord: str, dataset: 'xr.Dataset') -> str:
+        """
+        Find the actual coordinate name in the dataset for a requested coordinate.
+
+        Handles cases where ECMWF uses 'valid_time' instead of 'time', etc.
+
+        Args:
+            requested_coord: The coordinate name to find
+            dataset: The xarray Dataset to search
+
+        Returns:
+            str: The actual coordinate name found in the dataset, or requested_coord if not found
+        """
+        all_coords = set(dataset.coords.keys()) | set(dataset.dims.keys())
+
+        # First try the requested coordinate name directly
+        if requested_coord in all_coords:
+            return requested_coord
+
+        # Try alternative coordinate names from the mapping
+        alternative_names = self.coordinate_name_mapping.get(requested_coord, [])
+        for alt_name in alternative_names:
+            if alt_name in all_coords:
+                self.logger.info(f"Found coordinate '{requested_coord}' as '{alt_name}' in downloaded file")
+                return alt_name
+
+        # Coordinate not found under any known name, return requested name
+        self.logger.warning(f"Coordinate '{requested_coord}' not found in file. Available coordinates: {list(all_coords)}")
+        return requested_coord
+
+    def standardize_dataset_coordinates(self, dataset: 'xr.Dataset') -> 'xr.Dataset':
+        """
+        Standardize coordinate names in a dataset to use standard names.
+
+        Renames coordinates like 'valid_time' to 'time' for consistency.
+
+        Args:
+            dataset: The xarray Dataset to standardize
+
+        Returns:
+            xr.Dataset: Dataset with standardized coordinate names
+        """
+        rename_dict = {}
+
+        for standard_coord, alternatives in self.coordinate_name_mapping.items():
+            for alt_coord in alternatives[1:]:  # Skip first (standard) name
+                if alt_coord in dataset.coords or alt_coord in dataset.dims:
+                    if standard_coord not in dataset.coords and standard_coord not in dataset.dims:
+                        rename_dict[alt_coord] = standard_coord
+                        self.logger.info(f"Standardizing coordinate '{alt_coord}' to '{standard_coord}'")
+                        break
+
+        if rename_dict:
+            return dataset.rename(rename_dict)
+        else:
+            return dataset
+
     def validate_variables(self, variables: List[str]) -> Dict[str, bool]:
         """
         Validate that requested variables are available in the registry.
@@ -193,6 +329,95 @@ class ECMWFDownloader(BaseDownloader):
             dict: Variable metadata or None if not found
         """
         return self.variable_registry.get(variable)
+
+    def _extract_zip_file(self, zip_filepath: str, extract_dir: str = None) -> List[str]:
+        """
+        Extract a ZIP file and return list of extracted NetCDF files.
+        
+        Args:
+            zip_filepath: Path to the ZIP file to extract
+            extract_dir: Directory to extract files to (default: temp directory next to ZIP)
+            
+        Returns:
+            List of paths to extracted NetCDF files
+            
+        Raises:
+            Exception: If ZIP extraction fails or no NetCDF files found
+        """
+        extracted_files = []
+        
+        # Create extraction directory if not provided
+        if extract_dir is None:
+            zip_dir = os.path.dirname(zip_filepath)
+            zip_name = os.path.splitext(os.path.basename(zip_filepath))[0]
+            extract_dir = os.path.join(zip_dir, f"temp_extract_{zip_name}")
+        
+        # Ensure extraction directory exists
+        os.makedirs(extract_dir, exist_ok=True)
+        
+        try:
+            self.logger.info(f"Extracting ZIP file: {zip_filepath} to {extract_dir}")
+            
+            with zipfile.ZipFile(zip_filepath, 'r') as zip_ref:
+                # Extract all files
+                zip_ref.extractall(extract_dir)
+                
+                # Find all NetCDF files in the extracted content
+                for root, dirs, files in os.walk(extract_dir):
+                    for file in files:
+                        if file.lower().endswith(('.nc', '.netcdf')):
+                            full_path = os.path.join(root, file)
+                            extracted_files.append(full_path)
+                            self.logger.info(f"Found NetCDF file: {file}")
+            
+            if not extracted_files:
+                raise Exception(f"No NetCDF files found in ZIP archive: {zip_filepath}")
+                
+            self.logger.info(f"Successfully extracted {len(extracted_files)} NetCDF files from ZIP")
+            return extracted_files
+            
+        except zipfile.BadZipFile:
+            raise Exception(f"Invalid or corrupted ZIP file: {zip_filepath}")
+        except Exception as e:
+            # Cleanup extraction directory on failure
+            if os.path.exists(extract_dir):
+                shutil.rmtree(extract_dir, ignore_errors=True)
+            raise Exception(f"Failed to extract ZIP file {zip_filepath}: {e}")
+
+    
+    def _cleanup_temp_files(self, zip_filepath: str, extracted_files: List[str]):
+        """
+        Clean up temporary ZIP file and extracted files.
+        
+        Args:
+            zip_filepath: Path to the ZIP file to remove
+            extracted_files: List of extracted file paths to remove
+        """
+        try:
+            # Remove the ZIP file
+            if os.path.exists(zip_filepath):
+                os.remove(zip_filepath)
+                self.logger.info(f"Removed temporary ZIP file: {zip_filepath}")
+            
+            # Remove extracted files and their parent directories
+            extraction_dirs = set()
+            for extracted_file in extracted_files:
+                if os.path.exists(extracted_file):
+                    extraction_dirs.add(os.path.dirname(extracted_file))
+                    os.remove(extracted_file)
+            
+            # Remove extraction directories if they're empty
+            for extract_dir in extraction_dirs:
+                try:
+                    if os.path.exists(extract_dir) and not os.listdir(extract_dir):
+                        os.rmdir(extract_dir)
+                        self.logger.info(f"Removed empty extraction directory: {extract_dir}")
+                except OSError:
+                    # Directory not empty or other error, ignore
+                    pass
+                    
+        except Exception as e:
+            self.logger.warning(f"Failed to clean up some temporary files: {e}")
 
     def download_data(self,
                      variables: Union[str, List[str]],
@@ -250,7 +475,7 @@ class ECMWFDownloader(BaseDownloader):
                              times: List[str] = None,
                              dataset: str = "reanalysis-era5-single-levels",
                              file_prefix: str = "ECMWF_HOURLY") -> Dict[str, Any]:
-        """Download hourly ERA5 data with CARDAMOM variable mapping."""
+        """Download hourly ERA5 data with optimized bulk requests."""
 
         # Ensure lists
         if isinstance(years, int):
@@ -266,54 +491,75 @@ class ECMWFDownloader(BaseDownloader):
 
         downloaded_files = []
 
+        # Optimize: Make one request per year for all variables and months
         for year in years:
-            for month in months:
-                for variable in variables:
-                    # Use CARDAMOM name from registry if available
-                    var_metadata = self.get_variable_metadata(variable)
-                    var_abbr = var_metadata.get("cardamom_name", variable) if var_metadata else variable
+            # Prepare month list as strings
+            month_strings = [f"{month:02d}" for month in months]
+            
+            # Create temporary filename for multi-variable download (ZIP format)
+            temp_filename = f"{file_prefix}_MULTI_{year}.zip"
+            temp_filepath = os.path.join(self.output_dir, temp_filename)
 
-                    filename = f"{file_prefix}_{var_abbr}_{month:02d}{year}.nc"
-                    filepath = os.path.join(self.output_dir, filename)
+            try:
+                # Prepare bulk download request for all variables and months in this year
+                request = {
+                    "product_type": ["reanalysis"],
+                    "variable": variables,  # Download all variables at once
+                    "year": str(year),
+                    "month": month_strings,  # Download all months at once
+                    "day": days,
+                    "time": times,
+                    "data_format": self.data_format,
+                    "grid": self.grid,
+                    "download_format": self.download_format,  # This will be "zip"
+                    "area": self.area
+                }
 
-                    # Skip if file already exists
-                    if os.path.exists(filepath):
-                        self.logger.info(f"File '{filename}' already exists. Skipping download.")
-                        self._record_download_attempt(filename, "skipped")
-                        continue
+                self.logger.info(f"Downloading {len(variables)} variables for {len(months)} months in {year}...")
+                self.logger.info(f"Variables: {variables}")
+                self.logger.info(f"Months: {month_strings}")
 
+                # Download bulk ZIP file with all variables and months
+                target = self.client.retrieve(dataset, request).download()
+                shutil.move(target, temp_filepath)
+
+                self.logger.info(f"Bulk ZIP download completed: {temp_filename}")
+
+                # Extract ZIP file and get list of NetCDF files
+                extracted_files = self._extract_zip_file(temp_filepath)
+
+                # Consolidate extracted files into single file with year range
+                consolidated_file = self._consolidate_extracted_files(
+                    extracted_files=extracted_files,
+                    file_prefix=file_prefix,
+                    years=[year]
+                )
+
+                downloaded_files.append(consolidated_file)
+
+                # Clean up temporary files
+                self._cleanup_temp_files(temp_filepath, extracted_files)
+
+                # Record successful download of consolidated file
+                consolidated_filename = os.path.basename(consolidated_file)
+                self._record_download_attempt(consolidated_filename, "success")
+
+                self.logger.info(f"Successfully consolidated {len(variables)} variables for {len(months)} months in {year}")
+
+            except Exception as e:
+                error_msg = f"Bulk download failed for {year}: {e}"
+                self.logger.error(error_msg)
+                
+                # Record failed download
+                failed_filename = f"{file_prefix}_{year}.nc"
+                self._record_download_attempt(failed_filename, "failed", str(e))
+
+                # Clean up temp files if they exist but failed
+                if os.path.exists(temp_filepath):
                     try:
-                        # Prepare download request
-                        request = {
-                            "product_type": ["reanalysis"],
-                            "variable": variable,
-                            "year": str(year),
-                            "month": f"{month:02d}",
-                            "day": days,
-                            "time": times,
-                            "data_format": self.data_format,
-                            "grid": self.grid,
-                            "download_format": self.download_format,
-                            "area": self.area
-                        }
-
-                        self.logger.info(f"Downloading {variable} for {month:02d}/{year}...")
-
-                        # Download directly to output directory
-                        self.client.retrieve(dataset, request).download(filepath)
-
-                        # Validate downloaded file
-                        if self.validate_downloaded_data(filepath):
-                            downloaded_files.append(filepath)
-                            self._record_download_attempt(filename, "success")
-                            self.logger.info(f"Successfully downloaded {filename}")
-                        else:
-                            self._record_download_attempt(filename, "failed", "File validation failed")
-
-                    except Exception as e:
-                        error_msg = f"Download failed for {variable} {month:02d}/{year}: {e}"
-                        self.logger.error(error_msg)
-                        self._record_download_attempt(filename, "failed", str(e))
+                        os.remove(temp_filepath)
+                    except:
+                        pass
 
         return {
             "status": "completed",
@@ -330,7 +576,7 @@ class ECMWFDownloader(BaseDownloader):
                               times: List[str] = None,
                               dataset: str = "reanalysis-era5-single-levels-monthly-means",
                               file_prefix: str = "ECMWF_MONTHLY") -> Dict[str, Any]:
-        """Download monthly ERA5 data with CARDAMOM variable mapping."""
+        """Download monthly ERA5 data with optimized bulk requests."""
 
         # Ensure lists
         if isinstance(years, int):
@@ -347,48 +593,73 @@ class ECMWFDownloader(BaseDownloader):
 
         downloaded_files = []
 
+        # Optimize: Make one request per year for all variables and months
         for year in years:
-            for month in months:
-                for variable in variables:
-                    filename = f"{file_prefix}_{variable}_{month:02d}{year}.nc"
-                    filepath = os.path.join(self.output_dir, filename)
+            # Prepare month list as strings
+            month_strings = [f"{month:02d}" for month in months]
+            
+            # Create temporary filename for multi-variable download (ZIP format)
+            temp_filename = f"{file_prefix}_MULTI_{year}.zip"
+            temp_filepath = os.path.join(self.output_dir, temp_filename)
 
-                    # Skip if file already exists
-                    if os.path.exists(filepath):
-                        self.logger.info(f"File '{filename}' already exists. Skipping download.")
-                        self._record_download_attempt(filename, "skipped")
-                        continue
+            try:
+                # Prepare bulk download request for all variables and months in this year
+                request = {
+                    "product_type": [product_type],
+                    "variable": variables,  # Download all variables at once
+                    "year": str(year),
+                    "month": month_strings,  # Download all months at once
+                    "time": times,
+                    "data_format": self.data_format,
+                    "download_format": self.download_format,  # This will be "zip"
+                    "area": self.area
+                }
 
+                self.logger.info(f"Downloading {len(variables)} variables for {len(months)} months in {year}...")
+                self.logger.info(f"Variables: {variables}")
+                self.logger.info(f"Months: {month_strings}")
+
+                # Download bulk ZIP file with all variables and months
+                target = self.client.retrieve(dataset, request).download()
+                shutil.move(target, temp_filepath)
+
+                self.logger.info(f"Bulk ZIP download completed: {temp_filename}")
+
+                # Extract ZIP file and get list of NetCDF files
+                extracted_files = self._extract_zip_file(temp_filepath)
+
+                # Consolidate extracted files into single file with year range
+                consolidated_file = self._consolidate_extracted_files(
+                    extracted_files=extracted_files,
+                    file_prefix=file_prefix,
+                    years=[year]
+                )
+
+                downloaded_files.append(consolidated_file)
+
+                # Clean up temporary files
+                self._cleanup_temp_files(temp_filepath, extracted_files)
+
+                # Record successful download of consolidated file
+                consolidated_filename = os.path.basename(consolidated_file)
+                self._record_download_attempt(consolidated_filename, "success")
+
+                self.logger.info(f"Successfully consolidated {len(variables)} variables for {len(months)} months in {year}")
+
+            except Exception as e:
+                error_msg = f"Bulk download failed for {year}: {e}"
+                self.logger.error(error_msg)
+                
+                # Record failed download
+                failed_filename = f"{file_prefix}_{year}.nc"
+                self._record_download_attempt(failed_filename, "failed", str(e))
+
+                # Clean up temp file if it exists but failed
+                if os.path.exists(temp_filepath):
                     try:
-                        # Prepare download request
-                        request = {
-                            "product_type": [product_type],
-                            "variable": variable,
-                            "year": str(year),
-                            "month": f"{month:02d}",
-                            "time": times,
-                            "data_format": self.data_format,
-                            "download_format": self.download_format,
-                            "area": self.area
-                        }
-
-                        self.logger.info(f"Downloading {variable} for {month:02d}/{year}...")
-
-                        # Download directly to output directory
-                        self.client.retrieve(dataset, request).download(filepath)
-
-                        # Validate downloaded file
-                        if self.validate_downloaded_data(filepath):
-                            downloaded_files.append(filepath)
-                            self._record_download_attempt(filename, "success")
-                            self.logger.info(f"Successfully downloaded {filename}")
-                        else:
-                            self._record_download_attempt(filename, "failed", "File validation failed")
-
-                    except Exception as e:
-                        error_msg = f"Download failed for {variable} {month:02d}/{year}: {e}"
-                        self.logger.error(error_msg)
-                        self._record_download_attempt(filename, "failed", str(e))
+                        os.remove(temp_filepath)
+                    except:
+                        pass
 
         return {
             "status": "completed",
@@ -472,9 +743,14 @@ class ECMWFDownloader(BaseDownloader):
             self.logger.info(f"Loading dewpoint data from {dewpoint_file}")
             dewpoint_ds = xr.open_dataset(dewpoint_file)
 
-            # Get variable names (ERA5 uses standard names)
-            temp_var = '2m_temperature' if '2m_temperature' in temp_ds.data_vars else 't2m'
-            dewpoint_var = '2m_dewpoint_temperature' if '2m_dewpoint_temperature' in dewpoint_ds.data_vars else 'd2m'
+            # Get actual variable names using mapping system
+            temp_var = self._get_actual_variable_name('2m_temperature', temp_ds)
+            dewpoint_var = self._get_actual_variable_name('2m_dewpoint_temperature', dewpoint_ds)
+
+            if temp_var is None:
+                raise ValueError("Temperature variable not found in temperature file")
+            if dewpoint_var is None:
+                raise ValueError("Dewpoint temperature variable not found in dewpoint file")
 
             # Extract temperature and dewpoint arrays
             temperature_kelvin = temp_ds[temp_var]
@@ -487,13 +763,16 @@ class ECMWFDownloader(BaseDownloader):
             # Calculate VPD using Phase 8 atmospheric science function
             self.logger.info("Calculating Vapor Pressure Deficit (VPD)")
 
+            # Get actual time coordinate name
+            time_coord = self._get_actual_coordinate_name('time', temp_ds)
+
             # For monthly data, use the temperature directly
             # For hourly/daily data, we need temperature maximum
-            if 'time' in temperature_celsius.dims:
-                if len(temperature_celsius.time) > 31:  # Likely hourly or daily data
+            if time_coord in temperature_celsius.dims:
+                if len(temperature_celsius[time_coord]) > 31:  # Likely hourly or daily data
                     # Calculate monthly maximum temperature for VPD
-                    temp_max_celsius = temperature_celsius.groupby('time.month').max(dim='time')
-                    dewpoint_avg_celsius = dewpoint_celsius.groupby('time.month').mean(dim='time')
+                    temp_max_celsius = temperature_celsius.groupby(f'{time_coord}.month').max(dim=time_coord)
+                    dewpoint_avg_celsius = dewpoint_celsius.groupby(f'{time_coord}.month').mean(dim=time_coord)
                 else:
                     # Already monthly data
                     temp_max_celsius = temperature_celsius
@@ -532,12 +811,12 @@ class ECMWFDownloader(BaseDownloader):
             self.logger.info(f"VPD calculation completed: {vpd_filepath}")
 
             # Calculate temperature min/max if we have sub-monthly data
-            if 'time' in temperature_celsius.dims and len(temperature_celsius.time) > 31:
+            if time_coord in temperature_celsius.dims and len(temperature_celsius[time_coord]) > 31:
                 self.logger.info("Calculating monthly temperature min/max")
 
                 # Calculate monthly statistics
-                temp_min_monthly = temperature_kelvin.groupby('time.month').min(dim='time')
-                temp_max_monthly = temperature_kelvin.groupby('time.month').max(dim='time')
+                temp_min_monthly = temperature_kelvin.groupby(f'{time_coord}.month').min(dim=time_coord)
+                temp_max_monthly = temperature_kelvin.groupby(f'{time_coord}.month').max(dim=time_coord)
 
                 # Create min temperature DataArray
                 temp_min_da = xr.DataArray(
@@ -627,22 +906,12 @@ class ECMWFDownloader(BaseDownloader):
             # Load dataset
             ds = xr.open_dataset(input_file)
 
-            # Get the variable (ERA5 uses standard names)
-            if variable_name in ds.data_vars:
-                data_var = ds[variable_name]
+            # Get the variable using the centralized name mapping
+            actual_var_name = self._get_actual_variable_name(variable_name, ds)
+            if actual_var_name:
+                data_var = ds[actual_var_name]
             else:
-                # Try common ERA5 abbreviations
-                var_mappings = {
-                    'total_precipitation': 'tp',
-                    '2m_temperature': 't2m',
-                    'surface_solar_radiation_downwards': 'ssrd',
-                    'surface_thermal_radiation_downwards': 'strd'
-                }
-                alt_name = var_mappings.get(variable_name, variable_name)
-                if alt_name in ds.data_vars:
-                    data_var = ds[alt_name]
-                else:
-                    raise ValueError(f"Variable {variable_name} not found in {input_file}")
+                raise ValueError(f"Variable {variable_name} not found in {input_file}")
 
             # Apply unit conversions based on CBF requirements
             if cbf_processing == 'convert_to_mm':
@@ -1345,3 +1614,167 @@ class ECMWFDownloader(BaseDownloader):
         except Exception as e:
             self.logger.error(f"CBF file validation error: {e}")
             return False
+
+    def _split_multivariable_file(self,
+                                 multivariable_filepath: str,
+                                 variables: List[str],
+                                 file_prefix: str,
+                                 year: int,
+                                 month: int) -> List[str]:
+        """
+        Split a multi-variable NetCDF file into individual variable files.
+        
+        Args:
+            multivariable_filepath: Path to the downloaded multi-variable NetCDF file
+            variables: List of variable names to extract
+            file_prefix: Prefix for output files (e.g., "ECMWF_MONTHLY")
+            year: Year for filename generation
+            month: Month for filename generation
+            
+        Returns:
+            List of paths to created individual variable files
+        """
+        split_files = []
+        
+        try:
+            self.logger.info(f"Splitting multi-variable file: {multivariable_filepath}")
+            
+            # Open the multi-variable dataset
+            ds = xr.open_dataset(multivariable_filepath)
+            
+            # Extract each variable into a separate file
+            for variable in variables:
+                # Find the actual variable name in the dataset (handles ERA5 abbreviations)
+                actual_var_name = self._get_actual_variable_name(variable, ds)
+                if actual_var_name:
+                    # Create individual file path
+                    filename = f"{file_prefix}_{variable}_{month:02d}{year}.nc"
+                    individual_filepath = os.path.join(self.output_dir, filename)
+
+                    # Extract single variable dataset using actual name
+                    var_ds = ds[[actual_var_name]]
+
+                    # Rename the variable back to the requested name for consistency
+                    var_ds = var_ds.rename({actual_var_name: variable})
+
+                    # Save individual variable file
+                    var_ds.to_netcdf(individual_filepath)
+                    split_files.append(individual_filepath)
+
+                    self.logger.info(f"Extracted {variable} to: {filename}")
+
+                    # Close variable dataset
+                    var_ds.close()
+            
+            # Close the original dataset
+            ds.close()
+            
+            # Remove the temporary multi-variable file
+            os.remove(multivariable_filepath)
+            self.logger.info(f"Removed temporary multi-variable file: {multivariable_filepath}")
+            
+        except Exception as e:
+            error_msg = f"Failed to split multi-variable file {multivariable_filepath}: {e}"
+            self.logger.error(error_msg)
+            # Don't raise exception - return what we managed to create
+        
+        return split_files
+
+    def _consolidate_extracted_files(self,
+                                     extracted_files: List[str],
+                                     file_prefix: str,
+                                     years: List[int]) -> str:
+        """
+        Consolidate multiple NetCDF files into a single file with year range naming.
+
+        Args:
+            extracted_files: List of extracted NetCDF file paths to consolidate
+            file_prefix: Prefix for output file (e.g., "ECMWF_MONTHLY")
+            years: List of years to determine year range for filename
+
+        Returns:
+            Path to the consolidated file
+        """
+        try:
+            self.logger.info(f"Consolidating {len(extracted_files)} extracted files")
+
+            if not extracted_files:
+                raise ValueError("No extracted files provided for consolidation")
+
+            # Determine year range for filename
+            min_year = min(years)
+            max_year = max(years)
+
+            # Create consolidated filename with year range
+            if min_year == max_year:
+                consolidated_filename = f"{file_prefix}_{min_year}.nc"
+            else:
+                consolidated_filename = f"{file_prefix}_{min_year}_{max_year}.nc"
+
+            consolidated_filepath = os.path.join(self.output_dir, consolidated_filename)
+
+            # Open all datasets
+            datasets = []
+            for filepath in extracted_files:
+                try:
+                    ds = xr.open_dataset(filepath, engine='netcdf4')
+                    if "valid_time" in ds.dims or "valid_time" in ds.coords:
+                        ds = ds.rename({"valid_time": "time"})
+                    datasets.append(ds)
+                    self.logger.info(f"Loaded dataset from: {os.path.basename(filepath)}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to load {filepath}: {e}")
+                    continue
+
+            if not datasets:
+                raise ValueError("No valid datasets could be loaded from extracted files")
+
+            # Consolidate datasets
+            if len(datasets) == 1:
+                # Single dataset, just copy it
+                consolidated_ds = datasets[0]
+            else:
+                # Multiple datasets - concatenate along time dimension if it exists
+                # or merge if different variables
+                try:
+                    # Check if all datasets have time dimension
+                    has_time = all('time' in ds.dims for ds in datasets)
+
+                    if has_time:
+                        # Check if all datasets have the same time coords
+                        same_time = all(ds['time'].equals(datasets[0]['time']) for ds in datasets)
+
+                        if same_time:
+                            # Merge variables (since time coords are identical)
+                            consolidated_ds = xr.merge(datasets)
+                            self.logger.info("Consolidated datasets by merging variables (same time coords)")
+                        else:
+                            # Concatenate (datasets have different time periods)
+                            consolidated_ds = xr.concat(datasets, dim='time')
+                            consolidated_ds = consolidated_ds.sortby('time')
+                            self.logger.info("Consolidated datasets by concatenating along time dimension")
+                    else:
+                        # Merge datasets (no time dimension at all)
+                        consolidated_ds = xr.merge(datasets)
+                        self.logger.info("Consolidated datasets by merging variables (no time dim)")
+
+                except Exception as e:
+                    self.logger.warning(f"Failed to concatenate/merge datasets: {e}")
+                    # Fallback: just use the first dataset
+                    consolidated_ds = datasets[0]
+                    self.logger.warning("Using first dataset as fallback")
+
+            # Save consolidated file
+            consolidated_ds.to_netcdf(consolidated_filepath)
+            self.logger.info(f"Saved consolidated file: {consolidated_filename}")
+
+            # Close all datasets
+            for ds in datasets:
+                ds.close()
+
+            return consolidated_filepath
+
+        except Exception as e:
+            error_msg = f"Failed to consolidate extracted files: {e}"
+            self.logger.error(error_msg)
+            raise e
