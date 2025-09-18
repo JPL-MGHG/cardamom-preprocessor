@@ -208,3 +208,5 @@ __marimo__/
 .serena/
 .claude/
 matlab-migration/
+notebooks/
+*.nc
