@@ -1,0 +1,156 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/28.1.2 Chrome/138.0.7204.243 Electron/37.4.0 Safari/537.36" version="28.1.2">
+  <diagram name="Page-1" id="C5R1j-aD1kZ02s9-g3eC">
+    <mxGraphModel dx="1498" dy="1060" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="ID-erens-code" value="erens_cbf_code.py" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fixedSize=1;strokeWidth=2;fontSize=14;fontStyle=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+          <mxGeometry x="1360" y="470" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-file-met" value="AllMet05x05_LFmasked.nc" style="shape=document;whiteSpace=wrap;html=1;boundedLbl=1;strokeWidth=2;fontSize=12;fontStyle=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="960" y="160" width="280" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-file-obs" value="AlltsObs05x05newbiomass_LFmasked.nc" style="shape=document;whiteSpace=wrap;html=1;boundedLbl=1;strokeWidth=2;fontSize=12;fontStyle=1;strokeColor=#FF0000;fontColor=#FF0000;fillColor=#f8cecc;" parent="1" vertex="1">
+          <mxGeometry x="960" y="280" width="280" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-file-som" value="CARDAMOM-MAPS_05deg_HWSD_PEQ_iniSOM.nc" style="shape=document;whiteSpace=wrap;html=1;boundedLbl=1;strokeWidth=2;fontSize=12;fontStyle=1;strokeColor=#FF0000;fontColor=#FF0000;fillColor=#f8cecc;" parent="1" vertex="1">
+          <mxGeometry x="960" y="400" width="280" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-file-fire" value="CARDAMOM-MAPS_05deg_GFED4_Mean_FIR.nc" style="shape=document;whiteSpace=wrap;html=1;boundedLbl=1;strokeWidth=2;fontSize=12;fontStyle=1;strokeColor=#FF0000;fontColor=#FF0000;fillColor=#f8cecc;" parent="1" vertex="1">
+          <mxGeometry x="960" y="520" width="280" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-file-land" value="CARDAMOM-MAPS_05deg_LAND_SEA_FRAC.nc" style="shape=document;whiteSpace=wrap;html=1;boundedLbl=1;strokeWidth=2;fontSize=12;fontStyle=1;strokeColor=#FF0000;fontColor=#FF0000;fillColor=#f8cecc;" parent="1" vertex="1">
+          <mxGeometry x="960" y="640" width="280" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-proc-met" value="&lt;b&gt;CBFMetProcessor&lt;/b&gt;&lt;br&gt;(8/10 vars implemented)" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="560" y="160" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-proc-obs" value="&lt;b&gt;CBFObservationProcessor&lt;/b&gt;&lt;br&gt;(Missing)" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;fontSize=12;strokeColor=#FF0000;fontColor=#FF0000;fillColor=#f8cecc;" parent="1" vertex="1">
+          <mxGeometry x="560" y="280" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-proc-som" value="&lt;b&gt;CBFSOMProcessor&lt;/b&gt;&lt;br&gt;(Missing)" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;fontSize=12;strokeColor=#FF0000;fontColor=#FF0000;fillColor=#f8cecc;" parent="1" vertex="1">
+          <mxGeometry x="560" y="400" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-proc-fire" value="&lt;b&gt;GFEDProcessor&lt;/b&gt;&lt;br&gt;(Adaptation Missing)" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;fontSize=12;strokeColor=#FF0000;fontColor=#FF0000;fillColor=#f8cecc;" parent="1" vertex="1">
+          <mxGeometry x="560" y="520" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-proc-land" value="&lt;b&gt;LandMaskProcessor&lt;/b&gt;&lt;br&gt;(Missing)" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;fontSize=12;strokeColor=#FF0000;fontColor=#FF0000;fillColor=#f8cecc;" parent="1" vertex="1">
+          <mxGeometry x="560" y="640" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-source-ecmwf" value="ECMWF ERA5" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;strokeWidth=2;fontSize=12;fontStyle=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="160" y="100" width="160" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-source-noaa" value="NOAA CO2" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;strokeWidth=2;fontSize=12;fontStyle=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="160" y="220" width="160" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-source-obs" value="Observational Data&lt;br&gt;(SCF, LAI, GPP, etc.)" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;strokeWidth=2;fontSize=12;fontStyle=1;strokeColor=#FF0000;fontColor=#FF0000;fillColor=#f8cecc;" parent="1" vertex="1">
+          <mxGeometry x="160" y="340" width="160" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-source-hwsd" value="HWSD" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;strokeWidth=2;fontSize=12;fontStyle=1;strokeColor=#FF0000;fontColor=#FF0000;fillColor=#f8cecc;" parent="1" vertex="1">
+          <mxGeometry x="160" y="460" width="160" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-source-gfed" value="GFED4" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;strokeWidth=2;fontSize=12;fontStyle=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="160" y="580" width="160" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-source-modis" value="MODIS Land Cover" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;strokeWidth=2;fontSize=12;fontStyle=1;strokeColor=#FF0000;fontColor=#FF0000;fillColor=#f8cecc;" parent="1" vertex="1">
+          <mxGeometry x="160" y="700" width="160" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-arrow-ecmwf-met" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;strokeColor=#82b366;" parent="1" source="ID-source-ecmwf" target="ID-proc-met" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-arrow-noaa-met" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;strokeColor=#82b366;" parent="1" source="ID-source-noaa" target="ID-proc-met" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-arrow-obs-proc" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;strokeColor=#FF0000;" parent="1" source="ID-source-obs" target="ID-proc-obs" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-arrow-hwsd-proc" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;strokeColor=#FF0000;" parent="1" source="ID-source-hwsd" target="ID-proc-som" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-arrow-gfed-proc" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;strokeColor=#FF0000;" parent="1" source="ID-source-gfed" target="ID-proc-fire" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-arrow-modis-proc" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;strokeColor=#FF0000;" parent="1" source="ID-source-modis" target="ID-proc-land" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-arrow-proc-file-met" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;strokeColor=#82b366;" parent="1" source="ID-proc-met" target="ID-file-met" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-var-map-met" value="&lt;b&gt;&lt;u&gt;Variable Mapping &amp;amp; Transformations&lt;/u&gt;&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;&lt;u&gt;From ERA5:&lt;/u&gt;&lt;/b&gt;&lt;br&gt;1. &lt;b&gt;Tair (°C)&lt;/b&gt; &amp;lt;-- &lt;i&gt;2m_temperature (K)&lt;/i&gt; [Unit Conv.]&lt;br&gt;2. &lt;b&gt;Tdew (°C)&lt;/b&gt; &amp;lt;-- &lt;i&gt;2m_dewpoint_temperature (K)&lt;/i&gt; [Unit Conv.]&lt;br&gt;3. &lt;b&gt;VPD (hPa)&lt;/b&gt; &amp;lt;-- &lt;i&gt;Tair, Tdew&lt;/i&gt; [Calculation]&lt;br&gt;4. &lt;b&gt;precip (mm/day)&lt;/b&gt; &amp;lt;-- &lt;i&gt;total_precipitation (m)&lt;/i&gt; [Unit Conv.]&lt;br&gt;5. &lt;b&gt;PAR (µmol/m²/s)&lt;/b&gt; &amp;lt;-- &lt;i&gt;surface_solar_radiation_downwards (J/m²)&lt;/i&gt; [Calc. &amp;amp; Conv.]&lt;br&gt;6. &lt;b&gt;Tskin (°C)&lt;/b&gt; &amp;lt;-- &lt;i&gt;skin_temperature (K)&lt;/i&gt; [Unit Conv.]&lt;br&gt;7. &lt;b&gt;snow (mm/day)&lt;/b&gt; &amp;lt;-- &lt;i&gt;snowfall (m of water equiv.)&lt;/i&gt; [Unit Conv.]&lt;br&gt;&lt;br&gt;&lt;b&gt;&lt;u&gt;From NOAA:&lt;/u&gt;&lt;/b&gt;&lt;br&gt;8. &lt;b&gt;CO2 (ppm)&lt;/b&gt; &amp;lt;-- &lt;i&gt;co2_concentration (ppm)&lt;/i&gt; [Interpolation]" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontStyle=0;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="260" y="780" width="550" height="280" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-arrow-proc-file-obs" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;strokeColor=#FF0000;" parent="1" source="ID-proc-obs" target="ID-file-obs" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-arrow-proc-file-som" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;strokeColor=#FF0000;" parent="1" source="ID-proc-som" target="ID-file-som" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-arrow-proc-file-fire" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;strokeColor=#FF0000;" parent="1" source="ID-proc-fire" target="ID-file-fire" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-arrow-proc-file-land" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;strokeColor=#FF0000;" parent="1" source="ID-proc-land" target="ID-file-land" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-arrow-file-erens-met" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;strokeColor=#82b366;" parent="1" source="ID-file-met" target="ID-erens-code" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-arrow-file-erens-obs" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;strokeColor=#FF0000;" parent="1" source="ID-file-obs" target="ID-erens-code" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-arrow-file-erens-som" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;strokeColor=#FF0000;" parent="1" source="ID-file-som" target="ID-erens-code" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-arrow-file-erens-fire" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;strokeColor=#FF0000;" parent="1" source="ID-file-fire" target="ID-erens-code" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-arrow-file-erens-land" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;strokeColor=#FF0000;" parent="1" source="ID-file-land" target="ID-erens-code" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-arrow-land-to-met" value="Used for masking" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;endFill=1;strokeWidth=2;strokeColor=#FF0000;dashed=1;fontColor=#FF0000;" parent="1" source="ID-file-land" target="ID-proc-met" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="860" y="680" as="sourcePoint" />
+            <mxPoint x="770" y="200" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="860" y="680" />
+              <mxPoint x="860" y="40" />
+              <mxPoint x="660" y="40" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ID-title" value="CARDAMOM Preprocessor Data Flow for erens_cbf_code.py" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=20;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="510" y="880" width="700" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-legend" value="" style="group" parent="1" vertex="1" connectable="0">
+          <mxGeometry x="1360" y="760" width="200" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-legend-box" value="" style="rounded=1;whiteSpace=wrap;html=1;strokeColor=#a0a0a0;fillColor=none;" parent="ID-legend" vertex="1">
+          <mxGeometry width="200" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-legend-title" value="Legend" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontStyle=1;fontSize=14;" parent="ID-legend" vertex="1">
+          <mxGeometry x="10" y="5" width="180" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-legend-implemented-box" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="ID-legend" vertex="1">
+          <mxGeometry x="20" y="35" width="20" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-legend-implemented-text" value="Implemented" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="ID-legend" vertex="1">
+          <mxGeometry x="50" y="35" width="130" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-legend-missing-box" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#ff0000;" parent="ID-legend" vertex="1">
+          <mxGeometry x="20" y="65" width="20" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-legend-missing-text" value="Missing / Not Implemented" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="ID-legend" vertex="1">
+          <mxGeometry x="50" y="65" width="140" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-col-source" value="Original Data Source" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=16;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="120" y="40" width="240" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-col-processor" value="Preprocessor Component" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=16;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="540" y="40" width="240" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="ID-col-output" value="Required Input File" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=16;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="980" y="40" width="240" height="30" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
