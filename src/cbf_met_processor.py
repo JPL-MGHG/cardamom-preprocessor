@@ -479,32 +479,33 @@ class CBFMetProcessor:
         Returns:
             tuple: (TMIN dataset, TMAX dataset)
         """
-        # Get temperature variable using mapping system
         temp_var_name = self._get_actual_variable_name('2m_temperature', temp_dataset)
-
         if temp_var_name is None:
             available_vars = list(temp_dataset.data_vars.keys())
             raise ValueError(f"Temperature variable not found. Available: {available_vars}")
 
         temp_var = temp_dataset[temp_var_name]
-
-        # Get actual time coordinate name
         time_coord = self._get_actual_coordinate_name('time', temp_dataset)
 
-        # Calculate monthly extremes if we have sub-monthly data
+        # Ensure time is in datetime format
+        temp_var[time_coord] = xr.conventions.decode_cf_datetime(temp_var[time_coord], units=temp_var[time_coord].units) \
+            if not np.issubdtype(temp_var[time_coord].dtype, np.datetime64) else temp_var[time_coord]
+
+        # If sub-monthly data, calculate monthly extremes
         if time_coord in temp_var.dims and len(temp_var[time_coord]) > 31:
             self.logger.info("Calculating monthly temperature extremes from sub-monthly data")
-            temp_min_monthly = temp_var.groupby(f'{time_coord}.month').min(dim=time_coord)
-            temp_max_monthly = temp_var.groupby(f'{time_coord}.month').max(dim=time_coord)
+
+            # Use resample to get proper datetime index for TMIN/TMAX
+            temp_min_grouped = temp_var.resample({time_coord: 'MS'}).min()  # 'MS' = month start
+            temp_max_grouped = temp_var.resample({time_coord: 'MS'}).max()  # 'MS' = month start
         else:
-            # Already monthly data - use as is for both min and max
-            self.logger.info("Using monthly temperature data as-is")
-            temp_min_monthly = temp_var
-            temp_max_monthly = temp_var
+            # Already monthly or less frequent data
+            temp_min_grouped = temp_var
+            temp_max_grouped = temp_var
 
         # Create datasets with proper attributes
         temp_min_ds = xr.Dataset({
-            'TMIN': temp_min_monthly.assign_attrs({
+            'TMIN': temp_min_grouped.assign_attrs({
                 'units': 'K',
                 'long_name': 'Monthly Minimum 2m Temperature',
                 'description': 'Monthly minimum air temperature at 2m height',
@@ -513,7 +514,7 @@ class CBFMetProcessor:
         })
 
         temp_max_ds = xr.Dataset({
-            'TMAX': temp_max_monthly.assign_attrs({
+            'TMAX': temp_max_grouped.assign_attrs({
                 'units': 'K',
                 'long_name': 'Monthly Maximum 2m Temperature',
                 'description': 'Monthly maximum air temperature at 2m height',
