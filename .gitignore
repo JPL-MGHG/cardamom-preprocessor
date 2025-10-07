@@ -210,3 +210,7 @@ __marimo__/
 matlab-migration/
 notebooks/
 *.nc
+*.bkp
+plans/pdfs/
+plans/images/
+DATA/
