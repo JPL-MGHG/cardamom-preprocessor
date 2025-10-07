@@ -18,6 +18,7 @@ import shutil
 import xarray as xr
 from base_downloader import BaseDownloader
 from atmospheric_science import calculate_vapor_pressure_deficit_matlab
+from time_utils import standardize_time_coordinate, ensure_monotonic_time
 # Unit conversion now handled by CBFMetProcessor
 
 
@@ -89,6 +90,7 @@ class ECMWFDownloader(BaseDownloader):
                 "cbf_names": ["T2M_MIN", "T2M_MAX"],  # CBF requires min/max temperatures
                 "units": "K",
                 "cbf_units": "K",
+                "download_source": "hourly",  # Must download from hourly ERA5 dataset
                 "processing": "min_max_monthly",
                 "description": "Air temperature at 2m height for photosynthesis calculations",
                 "typical_range": [233, 323],  # -40°C to 50°C
@@ -100,6 +102,7 @@ class ECMWFDownloader(BaseDownloader):
                 "cbf_names": ["D2M"],
                 "units": "K",
                 "cbf_units": "K",
+                "download_source": "hourly",  # Must download from hourly ERA5 dataset
                 "processing": "hourly_averaged",
                 "description": "Dewpoint temperature for vapor pressure deficit calculations",
                 "typical_range": [193, 303],  # -80°C to 30°C
@@ -111,6 +114,7 @@ class ECMWFDownloader(BaseDownloader):
                 "cbf_names": ["SSRD"],
                 "units": "J m-2",
                 "cbf_units": "W m-2",  # CBF expects W/m²
+                "download_source": "monthly",  # Download from monthly ERA5 dataset
                 "processing": "monthly_mean",
                 "description": "Downward solar radiation for photosynthesis light limitation",
                 "typical_range": [0, 3.6e7],  # 0 to ~36 MJ/m²/day
@@ -122,6 +126,7 @@ class ECMWFDownloader(BaseDownloader):
                 "cbf_names": ["STRD"],
                 "units": "J m-2",
                 "cbf_units": "W m-2",  # CBF expects W/m²
+                "download_source": "monthly",  # Download from monthly ERA5 dataset
                 "processing": "monthly_mean",
                 "description": "Downward thermal radiation for energy balance",
                 "typical_range": [1e7, 5e7],  # ~10-50 MJ/m²/day
@@ -133,6 +138,7 @@ class ECMWFDownloader(BaseDownloader):
                 "cbf_names": ["TOTAL_PREC"],  # CBF requires this exact name
                 "units": "m",
                 "cbf_units": "mm/month",  # CBF expects mm/month
+                "download_source": "monthly",  # Download from monthly ERA5 dataset
                 "processing": "monthly_sum",
                 "description": "Total precipitation for soil moisture and plant water availability",
                 "typical_range": [0, 1.0],  # 0 to 1000 mm/month
@@ -144,6 +150,7 @@ class ECMWFDownloader(BaseDownloader):
                 "cbf_names": ["SKT"],
                 "units": "K",
                 "cbf_units": "K",
+                "download_source": "monthly",  # Download from monthly ERA5 dataset
                 "processing": "monthly_mean",
                 "description": "Surface skin temperature for soil respiration",
                 "typical_range": [223, 333],  # -50°C to 60°C
@@ -155,6 +162,7 @@ class ECMWFDownloader(BaseDownloader):
                 "cbf_names": ["SNOWFALL"],  # CBF requires this exact name
                 "units": "m of water equivalent",
                 "cbf_units": "mm/month",  # CBF expects mm/month
+                "download_source": "monthly",  # Download from monthly ERA5 dataset
                 "processing": "monthly_sum",
                 "description": "Snowfall for seasonal carbon cycle dynamics",
                 "typical_range": [0, 0.5],  # 0 to 500 mm water equivalent
@@ -329,6 +337,64 @@ class ECMWFDownloader(BaseDownloader):
             dict: Variable metadata or None if not found
         """
         return self.variable_registry.get(variable)
+
+    def _determine_required_datasets(self, variables: List[str]) -> Dict[str, List[str]]:
+        """
+        Analyze requested variables to determine which ERA5 datasets are needed.
+
+        Args:
+            variables: List of ERA5 variable names to analyze
+
+        Returns:
+            dict: Dataset requirements with keys:
+                - 'hourly_vars': Variables that need hourly ERA5 dataset
+                - 'monthly_vars': Variables that need monthly ERA5 dataset
+                - 'missing_vars': Variables not found in registry
+
+        Raises:
+            ValueError: If no valid variables are found
+        """
+        hourly_vars = []
+        monthly_vars = []
+        missing_vars = []
+
+        for variable in variables:
+            var_metadata = self.get_variable_metadata(variable)
+            if var_metadata is None:
+                missing_vars.append(variable)
+                continue
+
+            download_source = var_metadata.get('download_source', 'monthly')  # Default to monthly
+
+            if download_source == 'hourly':
+                hourly_vars.append(variable)
+                self.logger.info(f"Variable '{variable}' requires hourly ERA5 dataset")
+            elif download_source == 'monthly':
+                monthly_vars.append(variable)
+                self.logger.info(f"Variable '{variable}' requires monthly ERA5 dataset")
+            else:
+                self.logger.warning(f"Unknown download_source '{download_source}' for variable '{variable}', defaulting to monthly")
+                monthly_vars.append(variable)
+
+        # Log summary
+        if hourly_vars:
+            self.logger.info(f"Hourly dataset required for {len(hourly_vars)} variables: {hourly_vars}")
+        if monthly_vars:
+            self.logger.info(f"Monthly dataset required for {len(monthly_vars)} variables: {monthly_vars}")
+        if missing_vars:
+            self.logger.warning(f"Unknown variables (will be skipped): {missing_vars}")
+
+        # Validate that we have at least some valid variables
+        if not hourly_vars and not monthly_vars:
+            error_msg = f"No valid variables found in registry. Unknown variables: {missing_vars}"
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        return {
+            'hourly_vars': hourly_vars,
+            'monthly_vars': monthly_vars,
+            'missing_vars': missing_vars
+        }
 
     def _extract_zip_file(self, zip_filepath: str, extract_dir: str = None) -> List[str]:
         """
@@ -1239,7 +1305,7 @@ class ECMWFDownloader(BaseDownloader):
     def _integrate_co2_data(self, target_ds: xr.Dataset, co2_data: xr.Dataset) -> xr.DataArray:
         """Integrate CO2 data with target dataset."""
         # Get CO2 variable (common names)
-        co2_var_names = ['co2', 'CO2', 'co2_concentration', 'mole_fraction']
+        co2_var_names = ['co2', 'CO2', 'co2_concentration', 'mole_fraction', 'co2_mole_fraction']
         co2_var = None
         for var_name in co2_var_names:
             if var_name in co2_data.data_vars:
@@ -1343,27 +1409,61 @@ class ECMWFDownloader(BaseDownloader):
         self.logger.info(f"Months: {months}")
         self.logger.info(f"Download directory: {download_dir}")
 
-        # Download ERA5 data
-        download_result = self.download_data(
-            variables=download_variables,
-            years=years,
-            months=months,
-            processing_type="monthly"
-        )
+        # Analyze variables to determine required datasets
+        try:
+            dataset_requirements = self._determine_required_datasets(download_variables)
+        except ValueError as e:
+            return {"status": "failed", "error": str(e)}
 
-        if download_result.get('status') != 'completed':
-            error_msg = f"ERA5 download failed: {download_result.get('error')}"
-            self.logger.error(error_msg)
-            return {"status": "failed", "error": error_msg}
+        all_downloaded_files = []
 
-        downloaded_files = download_result.get('downloaded_files', [])
-        self.logger.info(f"Downloaded {len(downloaded_files)} ERA5 files")
+        # Download from hourly dataset if needed
+        if dataset_requirements.get('hourly_vars'):
+            self.logger.info(f"Downloading hourly variables: {dataset_requirements['hourly_vars']}")
+            hourly_result = self.download_data(
+                variables=dataset_requirements['hourly_vars'],
+                years=years,
+                months=months,
+                processing_type="hourly"  # Auto-determined based on variable requirements
+            )
+
+            if hourly_result.get('status') != 'completed':
+                error_msg = f"Hourly ERA5 download failed: {hourly_result.get('error')}"
+                self.logger.error(error_msg)
+                return {"status": "failed", "error": error_msg}
+
+            hourly_files = hourly_result.get('downloaded_files', [])
+            all_downloaded_files.extend(hourly_files)
+            self.logger.info(f"Downloaded {len(hourly_files)} hourly ERA5 files")
+
+        # Download from monthly dataset if needed
+        if dataset_requirements.get('monthly_vars'):
+            self.logger.info(f"Downloading monthly variables: {dataset_requirements['monthly_vars']}")
+            monthly_result = self.download_data(
+                variables=dataset_requirements['monthly_vars'],
+                years=years,
+                months=months,
+                processing_type="monthly"  # Auto-determined based on variable requirements
+            )
+
+            if monthly_result.get('status') != 'completed':
+                error_msg = f"Monthly ERA5 download failed: {monthly_result.get('error')}"
+                self.logger.error(error_msg)
+                return {"status": "failed", "error": error_msg}
+
+            monthly_files = monthly_result.get('downloaded_files', [])
+            all_downloaded_files.extend(monthly_files)
+            self.logger.info(f"Downloaded {len(monthly_files)} monthly ERA5 files")
+
+        downloaded_files = all_downloaded_files
+        self.logger.info(f"Total downloaded files: {len(downloaded_files)} ERA5 files")
 
         return {
             "status": "completed",
             "downloaded_files": downloaded_files,
             "download_directory": download_dir,
             "variables": download_variables,
+            "dataset_requirements": dataset_requirements,
             "message": f"Downloaded {len(downloaded_files)} files for CBF processing"
         }
 
@@ -1763,6 +1863,11 @@ class ECMWFDownloader(BaseDownloader):
                     # Fallback: just use the first dataset
                     consolidated_ds = datasets[0]
                     self.logger.warning("Using first dataset as fallback")
+
+            # Standardize time coordinate to CARDAMOM convention
+            consolidated_ds = standardize_time_coordinate(consolidated_ds)
+            consolidated_ds = ensure_monotonic_time(consolidated_ds)
+            self.logger.info("Standardized time coordinate to CARDAMOM convention (days since 2001-01-01)")
 
             # Save consolidated file
             consolidated_ds.to_netcdf(consolidated_filepath)

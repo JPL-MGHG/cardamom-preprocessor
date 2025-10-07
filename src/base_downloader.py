@@ -12,7 +12,7 @@ import time
 from abc import ABC, abstractmethod
 from typing import Dict, List, Any
 import logging
-
+import logging_utils
 
 class BaseDownloader(ABC):
     """

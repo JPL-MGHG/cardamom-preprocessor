@@ -19,6 +19,7 @@ from pathlib import Path
 
 from logging_utils import setup_cardamom_logging
 from atmospheric_science import calculate_vapor_pressure_deficit_matlab
+from time_utils import standardize_time_coordinate, ensure_monotonic_time, get_time_range_info
 
 
 class CBFMetProcessor:
@@ -35,15 +36,26 @@ class CBFMetProcessor:
     the transformation from raw ERA5 data to CBF requirements.
     """
 
-    def __init__(self, output_dir: str = "."):
+    def __init__(self, output_dir: str = ".",
+                 target_grid_resolution: float = 0.5,
+                 target_lat_range: tuple = (-89.75, 89.75),
+                 target_lon_range: tuple = (-179.75, 179.75)):
         """
         Initialize CBF meteorological processor.
 
         Args:
             output_dir: Directory for processed CBF files
+            target_grid_resolution: Target grid resolution in degrees (default: 0.5)
+            target_lat_range: Target latitude range as (min, max) in degrees (default: (-89.75, 89.75))
+            target_lon_range: Target longitude range as (min, max) in degrees (default: (-179.75, 179.75))
         """
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Target grid configuration
+        self.target_grid_resolution = target_grid_resolution
+        self.target_lat_range = target_lat_range
+        self.target_lon_range = target_lon_range
 
         # Setup logging
         import logging
@@ -119,6 +131,37 @@ class CBFMetProcessor:
             "time": ["time", "valid_time"],
             "latitude": ["latitude", "lat"],
             "longitude": ["longitude", "lon"]
+        }
+
+    def _create_target_grid_coordinates(self) -> Dict[str, np.ndarray]:
+        """
+        Create target grid coordinate arrays based on configuration.
+
+        Generates latitude and longitude coordinate arrays at the specified
+        target resolution and spatial bounds. This ensures all processed
+        variables are regridded to a consistent, user-defined grid.
+
+        Returns:
+            dict: Dictionary with 'latitude' and 'longitude' coordinate arrays
+        """
+        # Generate latitude array (from min to max at target resolution)
+        lat_min, lat_max = self.target_lat_range
+        num_lat_points = int((lat_max - lat_min) / self.target_grid_resolution) + 1
+        target_latitudes = np.linspace(lat_min, lat_max, num_lat_points)
+
+        # Generate longitude array (from min to max at target resolution)
+        lon_min, lon_max = self.target_lon_range
+        num_lon_points = int((lon_max - lon_min) / self.target_grid_resolution) + 1
+        target_longitudes = np.linspace(lon_min, lon_max, num_lon_points)
+
+        self.logger.debug(
+            f"Created target grid: {len(target_latitudes)}×{len(target_longitudes)} "
+            f"at {self.target_grid_resolution}° resolution"
+        )
+
+        return {
+            'latitude': target_latitudes,
+            'longitude': target_longitudes
         }
 
     def _get_actual_variable_name(self, requested_var: str, dataset: 'xr.Dataset') -> str:
@@ -386,6 +429,16 @@ class CBFMetProcessor:
         if missing_vars:
             self.logger.warning(f"Expected variables not found: {missing_vars}")
 
+        # Standardize time coordinate to CARDAMOM convention
+        unified_dataset = standardize_time_coordinate(unified_dataset)
+        unified_dataset = ensure_monotonic_time(unified_dataset)
+
+        # Log time range information
+        time_info = get_time_range_info(unified_dataset)
+        if time_info.get('has_time'):
+            self.logger.info(f"Time range: {time_info['start']} to {time_info['end']} ({time_info['count']} timesteps, {time_info['resolution']} resolution)")
+            self.logger.info("Standardized time coordinate to CARDAMOM convention (days since 2001-01-01)")
+
         return unified_dataset
 
     def _process_era5_variables(self, unified_dataset: xr.Dataset) -> Dict[str, xr.Dataset]:
@@ -554,8 +607,10 @@ class CBFMetProcessor:
 
         # For VPD, use maximum temperature if we have sub-monthly data
         if 'time' in temp_celsius.dims and len(temp_celsius.time) > 31:
-            temp_max_celsius = temp_celsius.groupby('time.month').max(dim='time')
-            dewpoint_avg_celsius = dewpoint_celsius.groupby('time.month').mean(dim='time')
+            self.logger.info("Resampling temperature to monthly max and dewpoint to monthly mean for VPD calculation.")
+            # Use resample to get a proper time series of monthly values
+            temp_max_celsius = temp_celsius.resample(time='MS').max()
+            dewpoint_avg_celsius = dewpoint_celsius.resample(time='MS').mean()
         else:
             temp_max_celsius = temp_celsius
             dewpoint_avg_celsius = dewpoint_celsius
@@ -738,7 +793,7 @@ class CBFMetProcessor:
             co2_ds = xr.concat(datasets, dim='time')
 
         # Find CO2 variable
-        co2_var_names = ['co2', 'CO2', 'co2_concentration', 'mole_fraction']
+        co2_var_names = ['co2', 'CO2', 'co2_concentration', 'mole_fraction', 'co2_mole_fraction']
         co2_var = None
         for var_name in co2_var_names:
             if var_name in co2_ds.data_vars:
@@ -748,9 +803,13 @@ class CBFMetProcessor:
         if co2_var is None:
             raise ValueError(f"CO2 variable not found in {co2_files}")
 
-        # Interpolate to reference grid
-        ref_var = list(reference_coords.data_vars.values())[0]
-        co2_interp = co2_var.interp_like(ref_var, method='linear')
+        # Interpolate to target grid
+        target_coords = self._create_target_grid_coordinates()
+        co2_interp = co2_var.interp(
+            latitude=target_coords['latitude'],
+            longitude=target_coords['longitude'],
+            method='linear'
+        )
 
         co2_interp.attrs.update({
             'units': 'ppm',
@@ -789,9 +848,13 @@ class CBFMetProcessor:
         if fire_var is None:
             raise ValueError(f"Burned area variable not found in {fire_files}")
 
-        # Interpolate to reference grid
-        ref_var = list(reference_coords.data_vars.values())[0]
-        fire_interp = fire_var.interp_like(ref_var, method='nearest')
+        # Interpolate to target grid
+        target_coords = self._create_target_grid_coordinates()
+        fire_interp = fire_var.interp(
+            latitude=target_coords['latitude'],
+            longitude=target_coords['longitude'],
+            method='nearest'
+        )
 
         fire_interp.attrs.update({
             'units': 'fraction',
@@ -832,8 +895,14 @@ class CBFMetProcessor:
         if land_var is None:
             raise ValueError(f"Land fraction variable not found in {land_fraction_file}")
 
-        # Create land mask
+        # Create land mask and interpolate to target grid
         land_mask = land_var > land_threshold
+        target_coords = self._create_target_grid_coordinates()
+        land_mask_on_target_grid = land_mask.interp(
+            latitude=target_coords['latitude'],
+            longitude=target_coords['longitude'],
+            method='nearest'
+        )
 
         # Apply mask to all variables
         masked_variables = {}
@@ -844,8 +913,8 @@ class CBFMetProcessor:
                 for data_var_name in dataset.data_vars:
                     data_var = dataset[data_var_name]
 
-                    # Interpolate land mask to match variable grid
-                    land_mask_interp = land_mask.interp_like(data_var, method='nearest')
+                    # Use pre-interpolated land mask on target grid
+                    land_mask_interp = land_mask_on_target_grid
 
                     # Apply mask
                     if 'time' in data_var.dims:
@@ -869,6 +938,82 @@ class CBFMetProcessor:
         land_ds.close()
         return masked_variables
 
+    def _validate_output_grid(self, dataset: xr.Dataset) -> None:
+        """
+        Validate that output grid matches target specification.
+
+        Checks that the output dataset has the expected spatial dimensions
+        and grid resolution matching the target configuration.
+
+        Args:
+            dataset: Output dataset to validate
+
+        Raises:
+            Warning logs if grid doesn't match specification
+        """
+        # Get actual grid dimensions
+        actual_lat_size = len(dataset.latitude)
+        actual_lon_size = len(dataset.longitude)
+
+        # Calculate expected grid dimensions
+        target_coords = self._create_target_grid_coordinates()
+        expected_lat_size = len(target_coords['latitude'])
+        expected_lon_size = len(target_coords['longitude'])
+
+        # Check dimensions
+        if actual_lat_size != expected_lat_size or actual_lon_size != expected_lon_size:
+            self.logger.error(
+                f"Output grid dimensions mismatch! "
+                f"Expected: {expected_lat_size}×{expected_lon_size}, "
+                f"Actual: {actual_lat_size}×{actual_lon_size}"
+            )
+        else:
+            self.logger.info(
+                f"Output grid validation PASSED: {actual_lat_size}×{actual_lon_size} "
+                f"at {self.target_grid_resolution}° resolution"
+            )
+
+        # Calculate actual grid resolution
+        if len(dataset.latitude) > 1:
+            actual_lat_res = abs(dataset.latitude.values[1] - dataset.latitude.values[0])
+            actual_lon_res = abs(dataset.longitude.values[1] - dataset.longitude.values[0])
+
+            # Check resolution (allow small floating point differences)
+            lat_res_match = abs(actual_lat_res - self.target_grid_resolution) < 0.01
+            lon_res_match = abs(actual_lon_res - self.target_grid_resolution) < 0.01
+
+            if not (lat_res_match and lon_res_match):
+                self.logger.warning(
+                    f"Grid resolution mismatch! "
+                    f"Expected: {self.target_grid_resolution}°, "
+                    f"Actual: lat={actual_lat_res:.4f}°, lon={actual_lon_res:.4f}°"
+                )
+
+        # Check spatial bounds
+        actual_lat_min = float(dataset.latitude.min())
+        actual_lat_max = float(dataset.latitude.max())
+        actual_lon_min = float(dataset.longitude.min())
+        actual_lon_max = float(dataset.longitude.max())
+
+        expected_lat_min, expected_lat_max = self.target_lat_range
+        expected_lon_min, expected_lon_max = self.target_lon_range
+
+        bounds_match = (
+            abs(actual_lat_min - expected_lat_min) < 0.01 and
+            abs(actual_lat_max - expected_lat_max) < 0.01 and
+            abs(actual_lon_min - expected_lon_min) < 0.01 and
+            abs(actual_lon_max - expected_lon_max) < 0.01
+        )
+
+        if not bounds_match:
+            self.logger.warning(
+                f"Spatial bounds mismatch! "
+                f"Expected lat: [{expected_lat_min}, {expected_lat_max}], "
+                f"lon: [{expected_lon_min}, {expected_lon_max}]. "
+                f"Actual lat: [{actual_lat_min}, {actual_lat_max}], "
+                f"lon: [{actual_lon_min}, {actual_lon_max}]"
+            )
+
     def _create_unified_cbf_file(self, variables: Dict[str, xr.Dataset],
                                output_filepath: Path) -> str:
         """
@@ -883,11 +1028,29 @@ class CBFMetProcessor:
         """
         self.logger.info(f"Creating unified CBF file: {output_filepath.name}")
 
-        # Start with the first dataset as base
-        first_var = list(variables.keys())[0]
-        combined_ds = variables[first_var].copy()
+        # Get target grid coordinates
+        target_coords = self._create_target_grid_coordinates()
+        self.logger.info(
+            f"Regridding all variables to target grid: "
+            f"{len(target_coords['latitude'])}×{len(target_coords['longitude'])} "
+            f"at {self.target_grid_resolution}° resolution"
+        )
 
-        # Add all other variables
+        # Start with the first dataset, regridded to target
+        first_var = list(variables.keys())[0]
+        first_dataset = variables[first_var]
+
+        # Regrid first variable to target grid
+        first_var_name = list(first_dataset.data_vars.keys())[0]
+        first_data_var = first_dataset[first_var_name]
+        first_regridded = first_data_var.interp(
+            latitude=target_coords['latitude'],
+            longitude=target_coords['longitude'],
+            method='nearest'
+        )
+        combined_ds = xr.Dataset({first_var_name: first_regridded})
+
+        # Add all other variables, regridded to target grid
         for var_name, dataset in variables.items():
             if var_name == first_var:
                 continue
@@ -895,8 +1058,12 @@ class CBFMetProcessor:
             for data_var_name in dataset.data_vars:
                 data_var = dataset[data_var_name]
 
-                # Interpolate to match combined dataset coordinates
-                data_interp = data_var.interp_like(combined_ds, method='nearest')
+                # Interpolate to target grid coordinates
+                data_interp = data_var.interp(
+                    latitude=target_coords['latitude'],
+                    longitude=target_coords['longitude'],
+                    method='nearest'
+                )
                 combined_ds[data_var_name] = data_interp
 
         # Add required CBF framework variables (DISTURBANCE_FLUX and YIELD)
@@ -915,27 +1082,47 @@ class CBFMetProcessor:
         if missing_vars:
             self.logger.warning(f"Missing CBF variables: {missing_vars}")
 
+        # Calculate actual grid resolution from output coordinates
+        actual_lat_res = abs(combined_ds.latitude.values[1] - combined_ds.latitude.values[0])
+        actual_lon_res = abs(combined_ds.longitude.values[1] - combined_ds.longitude.values[0])
+        grid_resolution_str = f"{actual_lat_res:.2f}° lat × {actual_lon_res:.2f}° lon"
+
         # Set global attributes for CBF compatibility
         combined_ds.attrs.update({
             'title': 'CARDAMOM Meteorological Drivers',
             'description': 'Unified meteorological driver file for CBF input generation',
             'source': 'ERA5 reanalysis with external CO2 and fire data',
-            'grid_resolution': '0.5 degrees',
+            'target_grid_resolution': f'{self.target_grid_resolution} degrees',
+            'actual_grid_resolution': grid_resolution_str,
+            'latitude_range': f'{self.target_lat_range[0]} to {self.target_lat_range[1]}',
+            'longitude_range': f'{self.target_lon_range[0]} to {self.target_lon_range[1]}',
             'created_by': 'CBF Meteorological Processor',
             'creation_date': time.strftime('%Y-%m-%d %H:%M:%S'),
             'cbf_compatible': 'true',
             'variables_included': ', '.join(present_vars)
         })
 
-        # Set encoding for consistent NetCDF format
+        # Set encoding for consistent NetCDF format matching CARDAMOM expectations
         encoding = {}
         for var_name in combined_ds.data_vars:
             encoding[var_name] = {
                 'zlib': True,
                 'complevel': 6,
-                'dtype': 'float32',
-                '_FillValue': -9999.0
+                'dtype': 'float64',  # Match sample file (was float32)
+                '_FillValue': np.nan  # Match sample file (was -9999.0)
             }
+
+        # Add time coordinate encoding to match CARDAMOM convention
+        if 'time' in combined_ds.coords:
+            encoding['time'] = {
+                'units': 'days since 2001-01-01',
+                'calendar': 'proleptic_gregorian',
+                'dtype': 'int64'
+            }
+            self.logger.info("Set time encoding: days since 2001-01-01")
+
+        # Validate output grid before saving
+        self._validate_output_grid(combined_ds)
 
         # Save unified CBF file
         combined_ds.to_netcdf(output_filepath, encoding=encoding)
