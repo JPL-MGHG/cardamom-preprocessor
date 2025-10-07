@@ -7,12 +7,13 @@ Creates CARDAMOM-compliant NetCDF files with spatially-replicated CO2 data.
 """
 
 import os
-import ftplib
+import requests
 import numpy as np
 import xarray as xr
 from typing import Dict, List, Any, Tuple, Optional
 import logging
 from base_downloader import BaseDownloader
+from time_utils import standardize_time_coordinate
 
 
 class NOAADownloader(BaseDownloader):
@@ -25,7 +26,7 @@ class NOAADownloader(BaseDownloader):
     the background atmospheric CO2 that constrains carbon cycle models in
     CARDAMOM by providing the atmospheric boundary condition.
 
-    Data Source: ftp://aftp.cmdl.noaa.gov/products/trends/co2/co2_mm_gl.txt
+    Data Source: https://gml.noaa.gov/webdata/ccgg/trends/co2/co2_mm_gl.txt
     """
 
     def __init__(self, output_dir: str = "./DATA/NOAA_CO2/"):
@@ -37,9 +38,9 @@ class NOAADownloader(BaseDownloader):
         """
         super().__init__(output_dir)
 
-        # NOAA FTP server configuration
-        self.ftp_server = "aftp.cmdl.noaa.gov"
-        self.data_path = "/products/trends/co2/co2_mm_gl.txt"
+        # NOAA HTTPS server configuration
+        self.base_url = "https://gml.noaa.gov/webdata/ccgg/trends/co2/"
+        self.data_file = "co2_mm_gl.txt"
         self.output_file = os.path.join(self.output_dir, "co2_mm_gl.txt")
 
         # Default spatial grid for CARDAMOM (matches ECMWF 0.5 degree grid)
@@ -50,7 +51,7 @@ class NOAADownloader(BaseDownloader):
 
     def download_data(self, force_update: bool = False, **kwargs) -> Dict[str, Any]:
         """
-        Download raw CO2 data from NOAA FTP server.
+        Download raw CO2 data from NOAA HTTPS server.
 
         Args:
             force_update: If True, re-download even if file exists
@@ -63,7 +64,7 @@ class NOAADownloader(BaseDownloader):
 
     def download_raw_data(self, force_update: bool = False) -> Dict[str, Any]:
         """
-        Download raw CO2 text file from NOAA FTP server.
+        Download raw CO2 text file from NOAA HTTPS server.
 
         Args:
             force_update: If True, re-download even if file exists
@@ -82,18 +83,18 @@ class NOAADownloader(BaseDownloader):
             }
 
         try:
-            self.logger.info(f"Connecting to NOAA FTP server: {self.ftp_server}")
+            download_url = f"{self.base_url}{self.data_file}"
+            self.logger.info(f"Downloading CO2 data from: {download_url}")
 
-            # Connect to NOAA FTP server
-            with ftplib.FTP(self.ftp_server) as ftp:
-                ftp.login()  # Anonymous login
-                self.logger.info("Connected to NOAA FTP server")
+            # Download the CO2 data file using HTTPS
+            response = requests.get(download_url, timeout=30)
+            response.raise_for_status()  # Raise exception for HTTP errors
 
-                # Download the CO2 data file
-                with open(self.output_file, 'wb') as local_file:
-                    ftp.retrbinary(f'RETR {self.data_path}', local_file.write)
+            # Save the downloaded content
+            with open(self.output_file, 'w', encoding='utf-8') as local_file:
+                local_file.write(response.text)
 
-                self.logger.info(f"Downloaded NOAA CO2 data to {self.output_file}")
+            self.logger.info(f"Downloaded NOAA CO2 data to {self.output_file}")
 
             # Validate downloaded file
             if self.validate_downloaded_data(self.output_file):
@@ -124,9 +125,9 @@ class NOAADownloader(BaseDownloader):
         """
         Parse NOAA CO2 text file format.
 
-        NOAA CO2 file format:
+        NOAA CO2 file format (current):
         # Comment lines start with #
-        # year  month  decimal_date  average  interpolated  trend  #days
+        # year   month   decimal   average   average_unc   trend   trend_unc
         # Missing values are represented as -99.99
 
         Args:
@@ -152,31 +153,31 @@ class NOAADownloader(BaseDownloader):
 
                     try:
                         parts = line.strip().split()
-                        if len(parts) < 5:
+                        if len(parts) < 4:
                             self.logger.warning(f"Line {line_num}: Insufficient data columns")
                             continue
 
-                        # Parse data fields
+                        # Parse data fields (new format: year month decimal average average_unc trend trend_unc)
                         year = int(parts[0])
                         month = int(parts[1])
                         decimal_date = float(parts[2])
 
                         # Handle missing values (-99.99)
                         co2_average = float(parts[3]) if parts[3] != '-99.99' else None
-                        co2_interpolated = float(parts[4]) if parts[4] != '-99.99' else None
 
-                        # Additional fields if available
+                        # New format has average_unc in column 4, trend in column 5
+                        co2_average_unc = float(parts[4]) if len(parts) > 4 and parts[4] != '-99.99' else None
                         co2_trend = float(parts[5]) if len(parts) > 5 and parts[5] != '-99.99' else None
-                        num_days = int(parts[6]) if len(parts) > 6 and parts[6] != '-99.99' else None
+                        co2_trend_unc = float(parts[6]) if len(parts) > 6 and parts[6] != '-99.99' else None
 
                         co2_data.append({
                             'year': year,
                             'month': month,
                             'decimal_date': decimal_date,
                             'co2_ppm': co2_average,
-                            'co2_interpolated_ppm': co2_interpolated,
+                            'co2_average_unc': co2_average_unc,
                             'co2_trend_ppm': co2_trend,
-                            'num_days': num_days
+                            'co2_trend_unc': co2_trend_unc
                         })
 
                     except (ValueError, IndexError) as e:
@@ -243,7 +244,8 @@ class NOAADownloader(BaseDownloader):
         co2_records = []
         for record in co2_data:
             if record['year'] in years:
-                co2_value = record['co2_interpolated_ppm'] if use_interpolated and record['co2_interpolated_ppm'] is not None else record['co2_ppm']
+                # In new format, only average values are available (no separate interpolated values)
+                co2_value = record['co2_ppm']
                 if co2_value is not None:
                     co2_records.append({
                         'year': record['year'],
@@ -289,6 +291,9 @@ class NOAADownloader(BaseDownloader):
                 for month_idx in range(12):
                     co2_global[month_idx, :, :] = co2_monthly[month_idx]
 
+                # Create time coordinate with proper datetime64 values
+                time_values = np.array([f"{year}-{m:02d}-15" for m in range(1, 13)], dtype='datetime64[D]')
+
                 # Create xarray dataset
                 dataset = xr.Dataset(
                     {
@@ -317,21 +322,24 @@ class NOAADownloader(BaseDownloader):
                         ),
                         'time': (
                             ['time'],
-                            [f"{year}-{m:02d}-15" for m in range(1, 13)],
+                            time_values,
                             {'long_name': 'Time (monthly mid-points)'}
                         )
                     },
                     attrs={
                         'title': f'NOAA Global CO2 Concentrations for CARDAMOM - {year}',
                         'source': 'NOAA ESRL Global Monitoring Laboratory',
-                        'data_source_url': f'ftp://{self.ftp_server}{self.data_path}',
+                        'data_source_url': f'{self.base_url}{self.data_file}',
                         'spatial_resolution': '0.5 degrees',
                         'temporal_resolution': 'monthly',
                         'conventions': 'CF-1.8',
-                        'creation_date': np.datetime64('now').isoformat(),
+                        'creation_date': str(np.datetime64('now')),
                         'description': 'Atmospheric CO2 mole fraction from NOAA global mean, spatially replicated for CARDAMOM modeling'
                     }
                 )
+
+                # Standardize time coordinate to CARDAMOM convention
+                dataset = standardize_time_coordinate(dataset)
 
                 # Create output filename
                 output_filename = f"NOAA_CO2_GLOBAL_{year}.nc"
