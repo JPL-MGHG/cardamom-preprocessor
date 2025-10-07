@@ -20,6 +20,11 @@ from pathlib import Path
 from logging_utils import setup_cardamom_logging
 from atmospheric_science import calculate_vapor_pressure_deficit_matlab
 from time_utils import standardize_time_coordinate, ensure_monotonic_time, get_time_range_info
+from cardamom_variables import (
+    get_variable_config, get_interpolation_method, get_cbf_name,
+    get_unit_conversion, get_cbf_variable_mapping, get_variable_alternatives,
+    get_essential_variables
+)
 
 
 class CBFMetProcessor:
@@ -68,55 +73,8 @@ class CBFMetProcessor:
             'DISTURBANCE_FLUX', 'YIELD'  # Framework variables required by erens_cbf_code.py
         ]
 
-        # ERA5 to CBF variable mapping (using original names that erens_cbf_code.py expects)
-        self.era5_to_cbf_mapping = {
-            'total_precipitation': 'PREC',
-            '2m_temperature': ['TMIN', 'TMAX'],  # Derive min/max
-            'surface_thermal_radiation_downwards': 'STRD',
-            'surface_solar_radiation_downwards': 'SSRD',
-            'snowfall': 'SNOW',
-            'skin_temperature': 'SKT',
-            # VPD calculated from temperature and dewpoint
-            # CO2_2 and BURN_2 from external sources
-        }
-
-        # Unit conversion factors for CBF compatibility
-        self.unit_conversions = {
-            'PREC': {'from': 'm', 'to': 'mm/month', 'factor': 1000},
-            'SNOW': {'from': 'm of water equivalent', 'to': 'mm/month', 'factor': 1000},
-            'STRD': {'from': 'J m-2', 'to': 'W m-2', 'method': 'radiation_monthly'},
-            'SSRD': {'from': 'J m-2', 'to': 'W m-2', 'method': 'radiation_monthly'},
-        }
-
-        # Setup variable and coordinate name mappings for ERA5 abbreviations
-        self.era5_name_mapping = self._setup_era5_name_mapping()
+        # Setup coordinate name mappings for ERA5 files
         self.coordinate_name_mapping = self._setup_coordinate_name_mapping()
-
-    def _setup_era5_name_mapping(self) -> Dict[str, List[str]]:
-        """
-        Mapping of ERA5 variable names to possible alternative names in NetCDF files.
-
-        ECMWF returns abbreviated variable names in downloaded files that differ
-        from the full names used in API requests. This mapping handles the conversion.
-
-        Returns:
-            dict: Mapping from full variable names to list of alternative names
-        """
-        return {
-            # Core CARDAMOM meteorological variables
-            "2m_temperature": ["2m_temperature", "t2m", "T2M"],
-            "2m_dewpoint_temperature": ["2m_dewpoint_temperature", "d2m", "D2M"],
-            "surface_solar_radiation_downwards": ["surface_solar_radiation_downwards", "ssrd", "SSRD"],
-            "surface_thermal_radiation_downwards": ["surface_thermal_radiation_downwards", "strd", "STRD"],
-            "total_precipitation": ["total_precipitation", "tp", "TP"],
-            "skin_temperature": ["skin_temperature", "skt", "SKT"],
-            "snowfall": ["snowfall", "sf", "SF"],
-            # Additional meteorological variables
-            "10m_u_component_of_wind": ["10m_u_component_of_wind", "u10", "U10"],
-            "10m_v_component_of_wind": ["10m_v_component_of_wind", "v10", "V10"],
-            "mean_sea_level_pressure": ["mean_sea_level_pressure", "msl", "MSL"],
-            "surface_pressure": ["surface_pressure", "sp", "SP"]
-        }
 
     def _setup_coordinate_name_mapping(self) -> Dict[str, List[str]]:
         """
@@ -181,8 +139,8 @@ class CBFMetProcessor:
         if requested_var in all_vars:
             return requested_var
 
-        # Try alternative names from the variable mapping
-        alternative_names = self.era5_name_mapping.get(requested_var, [])
+        # Try alternative names from the variable registry
+        alternative_names = get_variable_alternatives(requested_var)
         for alt_name in alternative_names:
             if alt_name in all_vars:
                 self.logger.info(f"Found variable '{requested_var}' as '{alt_name}' in downloaded file")
@@ -453,7 +411,10 @@ class CBFMetProcessor:
         """
         processed_variables = {}
 
-        for era5_var, cbf_var in self.era5_to_cbf_mapping.items():
+        # Get ERA5 to CBF mapping from variable registry
+        cbf_mapping = get_cbf_variable_mapping()
+
+        for era5_var, cbf_var in cbf_mapping.items():
             # Get actual variable name from mapping
             actual_var_name = self._get_actual_variable_name(era5_var, unified_dataset)
             if actual_var_name is None:
@@ -472,10 +433,11 @@ class CBFMetProcessor:
                     temp_min, temp_max = self._derive_temperature_extremes(variable_data)
                     processed_variables['TMIN'] = temp_min
                     processed_variables['TMAX'] = temp_max
-                else:
+                elif cbf_var:  # Only process if there's a CBF output name
                     # Apply unit conversion if needed
-                    converted_data = self._apply_unit_conversion(variable_data, cbf_var)
-                    processed_variables[cbf_var] = converted_data
+                    cbf_name = cbf_var[0] if isinstance(cbf_var, list) else cbf_var
+                    converted_data = self._apply_unit_conversion(variable_data, cbf_name)
+                    processed_variables[cbf_name] = converted_data
 
             except Exception as e:
                 self.logger.error(f"Failed to process {era5_var}: {e}")
@@ -648,10 +610,17 @@ class CBFMetProcessor:
         Returns:
             xr.Dataset: Dataset with converted units
         """
-        if cbf_variable not in self.unit_conversions:
-            return dataset
+        # Get unit conversion info from variable registry
+        conversion = get_unit_conversion(cbf_variable)
 
-        conversion = self.unit_conversions[cbf_variable]
+        if not conversion:
+            # No conversion needed, just rename to CBF name
+            data_vars = list(dataset.data_vars.keys())
+            if data_vars:
+                main_var = dataset[data_vars[0]]
+                main_var.name = cbf_variable
+                return xr.Dataset({cbf_variable: main_var})
+            return dataset
 
         # Get the main data variable
         data_vars = list(dataset.data_vars.keys())
@@ -664,17 +633,22 @@ class CBFMetProcessor:
             # Convert radiation from J/m² to W/m² (monthly average)
             seconds_per_month = 30.44 * 24 * 3600  # Average seconds per month
             converted_data = main_var / seconds_per_month
-            unit_str = conversion['to']
+
+            # Get units from variable config
+            var_config = get_variable_config(cbf_variable)
+            unit_str = var_config.get('units', {}).get('cbf', 'W m-2')
         else:
             # Simple multiplication factor
-            factor = conversion['factor']
+            factor = conversion.get('factor', 1.0)
             converted_data = main_var * factor
-            unit_str = conversion['to']
+
+            # Get units from variable config
+            var_config = get_variable_config(cbf_variable)
+            unit_str = var_config.get('units', {}).get('cbf', '')
 
         # Update attributes
         converted_data.attrs.update(main_var.attrs)
         converted_data.attrs['units'] = unit_str
-        converted_data.attrs['unit_conversion'] = f"Converted from {conversion['from']} to {conversion['to']}"
 
         # Rename variable to CBF name
         converted_data.name = cbf_variable
@@ -803,12 +777,13 @@ class CBFMetProcessor:
         if co2_var is None:
             raise ValueError(f"CO2 variable not found in {co2_files}")
 
-        # Interpolate to target grid
+        # Interpolate to target grid using method from variable registry
         target_coords = self._create_target_grid_coordinates()
+        interp_method = get_interpolation_method('co2')
         co2_interp = co2_var.interp(
             latitude=target_coords['latitude'],
             longitude=target_coords['longitude'],
-            method='linear'
+            method=interp_method
         )
 
         co2_interp.attrs.update({
@@ -848,12 +823,13 @@ class CBFMetProcessor:
         if fire_var is None:
             raise ValueError(f"Burned area variable not found in {fire_files}")
 
-        # Interpolate to target grid
+        # Interpolate to target grid using method from variable registry
         target_coords = self._create_target_grid_coordinates()
+        interp_method = get_interpolation_method('burned_area')
         fire_interp = fire_var.interp(
             latitude=target_coords['latitude'],
             longitude=target_coords['longitude'],
-            method='nearest'
+            method=interp_method
         )
 
         fire_interp.attrs.update({
@@ -898,10 +874,11 @@ class CBFMetProcessor:
         # Create land mask and interpolate to target grid
         land_mask = land_var > land_threshold
         target_coords = self._create_target_grid_coordinates()
+        interp_method = get_interpolation_method('land_sea_mask')
         land_mask_on_target_grid = land_mask.interp(
             latitude=target_coords['latitude'],
             longitude=target_coords['longitude'],
-            method='nearest'
+            method=interp_method
         )
 
         # Apply mask to all variables
@@ -1040,13 +1017,14 @@ class CBFMetProcessor:
         first_var = list(variables.keys())[0]
         first_dataset = variables[first_var]
 
-        # Regrid first variable to target grid
+        # Regrid first variable to target grid using appropriate interpolation method
         first_var_name = list(first_dataset.data_vars.keys())[0]
         first_data_var = first_dataset[first_var_name]
+        first_interp_method = get_interpolation_method(first_var_name)
         first_regridded = first_data_var.interp(
             latitude=target_coords['latitude'],
             longitude=target_coords['longitude'],
-            method='nearest'
+            method=first_interp_method
         )
         combined_ds = xr.Dataset({first_var_name: first_regridded})
 
@@ -1058,11 +1036,14 @@ class CBFMetProcessor:
             for data_var_name in dataset.data_vars:
                 data_var = dataset[data_var_name]
 
+                # Get interpolation method from variable registry
+                interp_method = get_interpolation_method(data_var_name)
+
                 # Interpolate to target grid coordinates
                 data_interp = data_var.interp(
                     latitude=target_coords['latitude'],
                     longitude=target_coords['longitude'],
-                    method='nearest'
+                    method=interp_method
                 )
                 combined_ds[data_var_name] = data_interp
 
