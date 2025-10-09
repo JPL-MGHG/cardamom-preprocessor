@@ -17,18 +17,19 @@ The CARDAMOM Preprocessor transforms raw Earth observation data into CARDAMOM-re
 
 ## 🏗️ Architecture
 
-The system is organized into 8 phases, each providing specific functionality:
+The system is organized into modular components across 8 development phases:
 
-### **Phase 1: Core Framework** ✅ **COMPLETE**
+### **Phase 1: Core Framework** ✅
 - Main orchestration with CARDAMOMProcessor class
 - Unified configuration system with environment variable support
 - Complete NetCDF infrastructure with MATLAB equivalence
 - Coordinate systems and scientific utilities
 - Error handling and recovery with resumable processing
+- Time coordinate standardization for CBF compatibility
 
 ### **Phase 2: Data Downloaders** ✅
-- ECMWF meteorological data downloader
-- NOAA CO₂ concentration downloader
+- ECMWF meteorological data downloader (ERA5 via CDS API)
+- NOAA CO₂ concentration downloader (migrated to HTTPS from deprecated FTP)
 - GFED fire emissions downloader
 - MODIS land-sea mask generator
 
@@ -46,22 +47,28 @@ The system is organized into 8 phases, each providing specific functionality:
 - CARDAMOM-compliant NetCDF file generation
 - Template-based output with proper metadata
 
-### **Phase 6: CBF Input Generation** ✅ **NEW!**
+### **Phase 6: CBF Input Generation** ✅
 - Separated download/processing workflow for resilient data handling
 - CBF (CARDAMOM Binary Format) meteorological driver file generation
 - Compatible with `erens_cbf_code.py` input requirements
-- 80% coverage from ERA5 data with external data integration
+- 80% coverage from ERA5 data (8/10 variables)
+- Variable-aware processing using centralized configuration
+- Automated unit conversions and spatial interpolation
 
 ### **Phase 7: Enhanced CLI** 🚧 *Planned*
 - Extended command-line interface
 - Interactive configuration and validation
 
-### **Phase 8: Scientific Functions Library** ✅ **NEW!**
+### **Phase 8: Scientific Functions Library** ✅
 - Atmospheric science calculations (VPD, humidity, radiation)
 - Statistical utilities (temporal aggregation, spatial interpolation)
 - Physical constants and unit conversions
 - Carbon cycle modeling functions
 - Enhanced data quality control
+- **Centralized variable configuration system** (`cardamom_variables.py`)
+  - Single source of truth for all variable metadata
+  - Variable-specific interpolation methods based on spatial characteristics
+  - Automated unit conversions and physical range validation
 
 ## 🚀 Quick Start
 
@@ -73,6 +80,9 @@ conda env create -f environment.yml
 conda activate cardamom-ecmwf-downloader
 
 # Install package in development mode
+pip install -e .
+
+# Or using virtual environment directly
 .venv/bin/pip install -e .
 ```
 
@@ -80,28 +90,37 @@ conda activate cardamom-ecmwf-downloader
 
 ```python
 # Import core functionality
-from src import (
-    # Phase 1: Core components (COMPLETE)
-    CARDAMOMProcessor, CardamomConfig,
-    CARDAMOMNetCDFWriter, StandardGrids,
+from src.cardamom_preprocessor import CARDAMOMProcessor
+from src.config_manager import CardamomConfig
+from src.netcdf_infrastructure import CARDAMOMNetCDFWriter
+from src.coordinate_systems import StandardGrids
 
-    # Phase 2: Data downloaders
-    ECMWFDownloader, NOAADownloader, GFEDDownloader,
+# Phase 2: Data downloaders
+from src.ecmwf_downloader import ECMWFDownloader
+from src.noaa_downloader import NOAADownloader
+from src.gfed_downloader import GFEDDownloader
 
-    # Phase 3: GFED processing
-    GFEDProcessor,
+# Phase 3: GFED processing
+from src.gfed_processor import GFEDProcessor
 
-    # Phase 4: Diurnal processing
-    DiurnalProcessor,
+# Phase 4: Diurnal processing
+from src.diurnal_processor import DiurnalProcessor
 
-    # Phase 6: CBF input generation (NEW!)
-    CBFMetProcessor,
+# Phase 6: CBF input generation
+from src.cbf_met_processor import CBFMetProcessor
 
-    # Phase 8: Scientific functions
+# Phase 8: Scientific functions and variable configuration
+from src.atmospheric_science import (
     saturation_pressure_water_matlab,
-    calculate_vapor_pressure_deficit_matlab,
-    PhysicalConstants,
-    validate_temperature_range_extended
+    calculate_vapor_pressure_deficit_matlab
+)
+from src.units_constants import PhysicalConstants
+from src.validation import validate_temperature_range_extended
+from src.cardamom_variables import (
+    get_variable_config,
+    get_interpolation_method,
+    get_cbf_name,
+    CARDAMOM_VARIABLE_REGISTRY
 )
 
 # Example: Complete workflow using Phase 1 orchestration
@@ -130,9 +149,14 @@ processor = CARDAMOMProcessor(config_file=config)
 # Example: CBF meteorological processing (Phase 6)
 from src.ecmwf_downloader import ECMWFDownloader
 from src.cbf_met_processor import CBFMetProcessor
+from src.cardamom_variables import get_variables_by_source, get_essential_variables
 
 # Separated workflow for resilient processing
 downloader = ECMWFDownloader()
+
+# View available ERA5 variables with centralized configuration
+era5_vars = get_variables_by_source('era5')
+print(f"Available ERA5 variables: {era5_vars}")
 
 # Step 1: Download ERA5 meteorological data
 download_result = downloader.download_cbf_met_variables(
@@ -142,6 +166,7 @@ download_result = downloader.download_cbf_met_variables(
 )
 
 # Step 2: Process downloaded files to CBF format (independent of download)
+# Variable handling now uses centralized configuration system
 processor = CBFMetProcessor()
 cbf_file = processor.process_downloaded_files_to_cbf_met(
     input_dir='./era5_downloads',
@@ -162,11 +187,11 @@ print(f"VPD: {vpd_hpa} hPa")  # Expected: [11.7, 19.4, 29.8] hPa
 
 ```bash
 # CBF meteorological processing (Phase 6)
-cd src && python cbf_cli.py list-variables           # List supported CBF variables
-cd src && python cbf_cli.py process-met ./downloads/ --output AllMet05x05_LFmasked.nc
+python src/cbf_cli.py list-variables           # List supported CBF variables
+python src/cbf_cli.py process-met ./downloads/ --output AllMet05x05_LFmasked.nc
 
-# Download CARDAMOM meteorological drivers
-python ecmwf/ecmwf_downloader.py cardamom-monthly -y 2020 -m 1-3
+# Download CARDAMOM meteorological drivers (via Python module)
+python -m src.ecmwf_downloader cardamom-monthly -y 2020 -m 1-3
 
 # Run complete MAAP workflow
 ./.maap/run.sh cardamom-monthly ./output 2020 1-12
@@ -179,17 +204,17 @@ python ecmwf/ecmwf_downloader.py cardamom-monthly -y 2020 -m 1-3
 ## 📚 Documentation
 
 ### Component Documentation
-- **[Phase 1 Core Framework](plans/README_PHASE1.md)** - Main orchestration and infrastructure ✅ **NEW**
-- **[ECMWF Downloader](ecmwf/README.md)** - ERA5 meteorological data download
-- **[Phase 2 Downloaders](plans/README_PHASE2.md)** - Multi-source data acquisition
+- **[Phase 1 Core Framework](plans/README_PHASE1.md)** - Main orchestration and infrastructure ✅
+- **[Phase 2 Downloaders](plans/README_PHASE2.md)** - Multi-source data acquisition (ECMWF, NOAA, GFED)
 - **[Phase 3 GFED](plans/README_PHASE3.md)** - Fire emissions processing
 - **[Phase 4 Diurnal](plans/README_PHASE4.md)** - Hourly flux downscaling
-- **[Phase 6 CBF Input Generation](plans/phase6_cbf_input_pipeline.md)** - CBF meteorological drivers ✅ **NEW**
-- **[Phase 8 Scientific Functions](plans/README_PHASE8.md)** - Utility function library
+- **[Phase 6 CBF Input Generation](plans/phase6_cbf_input_pipeline.md)** - CBF meteorological drivers ✅
+- **[Phase 8 Scientific Functions](plans/README_PHASE8.md)** - Utility function library and variable registry ✅
 
 ### Development Guidelines
 - **[CLAUDE.md](CLAUDE.md)** - Scientist-friendly coding standards and best practices
 - **[Migration Plans](plans/README.md)** - Complete 8-phase implementation roadmap
+- **[Migration Notes](MIGRATION_NOTES.md)** - Recent changes and refactoring documentation
 
 ## 🔬 Scientific Validation
 
@@ -209,6 +234,35 @@ from src.atmospheric_science import saturation_pressure_water_matlab
 # MATLAB: VPSAT=6.11*10.^(7.5*T./(237.3+T))./10 (SCIFUN_H2O_SATURATION_PRESSURE.m, line 19)
 vpsat_kpa = saturation_pressure_water_matlab(25.0)  # 25°C
 print(f"Saturation pressure: {vpsat_kpa:.3f} kPa")  # 3.169 kPa (matches MATLAB)
+```
+
+### Variable Configuration System
+
+The preprocessor now uses a centralized variable registry (`src/cardamom_variables.py`) that eliminates scattered configuration:
+
+```python
+from src.cardamom_variables import (
+    get_variable_config,
+    get_interpolation_method,
+    get_variables_by_product_type
+)
+
+# Get complete metadata for any variable
+temp_config = get_variable_config('2m_temperature')
+print(temp_config['interpolation_method'])  # 'linear'
+print(temp_config['spatial_nature'])        # 'continuous'
+
+# Variables are automatically assigned appropriate methods based on spatial characteristics
+# - Continuous fields (temperature, CO2): linear interpolation
+# - Patchy data (fire, snow): nearest neighbor
+# - Radiation: linear with unit conversions
+
+# Group variables by ERA5 product type for efficient downloads
+hourly_vars = get_variables_by_product_type('monthly_averaged_reanalysis_by_hour_of_day')
+# ['2m_temperature', '2m_dewpoint_temperature']
+
+monthly_vars = get_variables_by_product_type('monthly_averaged_reanalysis')
+# ['total_precipitation', 'skin_temperature', 'surface_solar_radiation_downwards', ...]
 ```
 
 ## 🌐 NASA MAAP Integration
@@ -257,13 +311,21 @@ conda activate cardamom-ecmwf-downloader
 
 ### Phase Implementation Status
 
-- ✅ **Phase 1**: Core Framework *(Complete with CARDAMOMProcessor orchestration)*
-- ✅ **Phase 2**: Data Downloaders *(ECMWF, NOAA, GFED, MODIS)*
+- ✅ **Phase 1**: Core Framework *(CARDAMOMProcessor orchestration, time standardization)*
+- ✅ **Phase 2**: Data Downloaders *(ECMWF ERA5, NOAA CO₂ via HTTPS, GFED, MODIS)*
 - ✅ **Phase 3**: GFED Processing *(Gap-filling and multi-resolution)*
 - ✅ **Phase 4**: Diurnal Flux Processing *(CONUS hourly downscaling)*
-- ✅ **Phase 6**: CBF Input Generation *(Separated workflow, 80% ERA5 coverage)*
-- ✅ **Phase 8**: Scientific Functions Library *(Atmospheric & carbon cycle utilities)*
+- ✅ **Phase 6**: CBF Input Generation *(Separated workflow, variable-aware processing)*
+- ✅ **Phase 8**: Scientific Functions Library *(Atmospheric utilities, centralized variable registry)*
 - 🚧 **Phase 7**: Enhanced CLI *(planned)*
+
+### Recent Improvements (October 2025)
+
+- **Centralized Variable Configuration**: New `cardamom_variables.py` module eliminates scattered variable definitions
+- **NOAA HTTPS Migration**: Updated from deprecated FTP to modern HTTPS protocol with improved error handling
+- **Simplified Processing**: Reduced ECMWF downloader complexity by 1,400+ lines through configuration centralization
+- **Enhanced Time Handling**: Standardized time coordinates across all data sources for CBF compatibility
+- **Variable-Specific Interpolation**: Automatic method selection based on spatial characteristics (continuous vs. patchy)
 
 ## 📄 License
 
