@@ -10,9 +10,9 @@ dependencies:
   - xarray
   - netcdf4
   - pandas
-  # ECMWF CDS API
+  # ECMWF Data Stores API (new client with async capabilities)
   - pip:
-    - cdsapi
+    - ecmwf-datastores-client
     # MAAP-specific tools
     - maap-py
     - pystac

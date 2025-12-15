@@ -2,13 +2,15 @@
 """
 Generic ECMWF Data Downloader for CARDAMOM
 Combines functionality from existing scripts with configurable parameters
+Uses ecmwf-datastores-client for efficient batch processing
 """
 
-import cdsapi
 import os
 import argparse
 import json
-from typing import List, Dict, Optional, Union
+import time
+from typing import List, Dict, Optional, Union, Tuple
+from ecmwf.datastores import Client
 
 from cardamom_variables import get_cbf_name, get_variables_by_product_type
 
@@ -38,8 +40,8 @@ class ECMWFDownloader:
         self.data_format = data_format
         self.download_format = download_format
         self.output_dir = output_dir
-        self.client = cdsapi.Client()
-        
+        self.client = Client()
+
         # Create output directory if it doesn't exist
         os.makedirs(self.output_dir, exist_ok=True)
 
@@ -68,7 +70,66 @@ class ECMWFDownloader:
                 # If no CBF name, use variable name as-is
                 variable_map[var] = var
         return variable_map
-    
+
+    def _monitor_and_download_jobs(self, job_info_list: List[Tuple]) -> None:
+        """
+        Monitor submitted jobs and download results immediately when ready.
+        
+        This method combines monitoring and downloading into a single phase,
+        allowing downloads to begin as soon as individual jobs complete rather
+        than waiting for all jobs to finish.
+
+        Args:
+            job_info_list: List of tuples (remote, filepath, metadata_dict)
+                          where metadata_dict contains year, month, variable info
+        """
+        total_jobs = len(job_info_list)
+        print(f"\nMonitoring and downloading {total_jobs} jobs...")
+
+        pending_jobs = list(job_info_list)
+        downloaded_count = 0
+        failed_count = 0
+
+        while pending_jobs:
+            time.sleep(5)  # Poll every 5 seconds
+
+            still_pending = []
+            for remote, filepath, metadata in pending_jobs:
+                try:
+                    status = remote.status
+
+                    if remote.results_ready:
+                        # Download immediately when ready
+                        print(f"⬇ [{downloaded_count + 1}/{total_jobs}] Downloading: "
+                              f"{metadata['variable']} {metadata['month']:02d}/{metadata['year']}")
+                        try:
+                            remote.download(filepath)
+                            downloaded_count += 1
+                            print(f"  ✓ Saved to {filepath}")
+                        except Exception as download_error:
+                            failed_count += 1
+                            print(f"  ✗ Download failed: {download_error}")
+                            
+                    elif status == 'failed':
+                        failed_count += 1
+                        print(f"✗ Failed: {metadata['variable']} {metadata['month']:02d}/{metadata['year']}")
+                    else:
+                        # Still processing by ECMWF
+                        still_pending.append((remote, filepath, metadata))
+
+                except Exception as e:
+                    print(f"⚠ Error checking status for {metadata['variable']} "
+                          f"{metadata['month']:02d}/{metadata['year']}: {e}")
+                    still_pending.append((remote, filepath, metadata))
+
+            pending_jobs = still_pending
+
+            if pending_jobs:
+                print(f"⏳ Progress: {downloaded_count} downloaded, "
+                      f"{len(pending_jobs)} pending, {failed_count} failed", end='\r')
+
+        print(f"\n\n✓ Complete: {downloaded_count} downloaded, {failed_count} failed")
+
     def download_hourly_data(self,
                            variables: Union[str, List[str]],
                            years: Union[int, List[int]],
@@ -79,15 +140,15 @@ class ECMWFDownloader:
                            file_prefix: str = "ECMWF_HOURLY",
                            variable_map: Dict[str, str] = None) -> None:
         """
-        Download hourly ECMWF data
-        
+        Download hourly ECMWF data using batch submission.
+
         Args:
             variables: Variable name(s) to download
             years: Year(s) to download
             months: Month(s) to download
             days: Days to download (default: all days)
             times: Times to download (default: all hours)
-            dataset: ECMWF dataset name
+            dataset: ECMWF dataset name (collection ID)
             file_prefix: Prefix for output files
             variable_map: Map full variable names to abbreviations
         """
@@ -98,17 +159,22 @@ class ECMWFDownloader:
             years = [years]
         if isinstance(months, int):
             months = [months]
-        
+
         # Default days and times
         if days is None:
             days = [f"{i:02d}" for i in range(1, 32)]
         if times is None:
             times = [f"{i:02d}:00" for i in range(24)]
-        
+
         # Default variable map
         if variable_map is None:
             variable_map = {}
-        
+
+        # Phase 1: Submit all requests (non-blocking)
+        print(f"\n=== Phase 1: Submitting batch requests ===")
+        job_info_list = []
+        skipped_count = 0
+
         for year in years:
             for month in months:
                 for variable in variables:
@@ -116,11 +182,12 @@ class ECMWFDownloader:
                     var_abbr = variable_map.get(variable, variable)
                     filename = f"{file_prefix}_{var_abbr}_{month:02d}{year}.nc"
                     filepath = os.path.join(self.output_dir, filename)
-                    
+
                     if os.path.exists(filepath):
-                        print(f"File '{filename}' already exists. Skipping download.")
+                        print(f"  ⊙ File '{filename}' already exists. Skipping.")
+                        skipped_count += 1
                         continue
-                    
+
                     request = {
                         "product_type": ["reanalysis"],
                         "variable": variable,
@@ -133,10 +200,34 @@ class ECMWFDownloader:
                         "download_format": self.download_format,
                         "area": self.area
                     }
-                    
-                    print(f"Downloading {variable} for {month:02d}/{year}...")
-                    self.client.retrieve(dataset, request).download(filepath)
-                    print(f"Saved to {filepath}")
+
+                    try:
+                        print(f"  → Submitting: {variable} {month:02d}/{year}")
+                        remote = self.client.submit(dataset, request)
+
+                        metadata = {
+                            'variable': variable,
+                            'year': year,
+                            'month': month,
+                            'filename': filename
+                        }
+                        job_info_list.append((remote, filepath, metadata))
+
+                    except Exception as e:
+                        print(f"  ✗ Error submitting {variable} {month:02d}/{year}: {e}")
+
+        if skipped_count > 0:
+            print(f"\n⊙ Skipped {skipped_count} existing files")
+
+        if not job_info_list:
+            print("\n✓ No new files to download")
+            return
+
+        print(f"\n✓ Submitted {len(job_info_list)} requests")
+
+        # Phase 2: Monitor and download (combined)
+        print(f"\n=== Phase 2: Monitoring and downloading ===")
+        self._monitor_and_download_jobs(job_info_list)
     
     def download_monthly_data(self,
                             variables: Union[str, List[str]],
@@ -147,15 +238,15 @@ class ECMWFDownloader:
                             dataset: str = "reanalysis-era5-single-levels-monthly-means",
                             file_prefix: str = "ECMWF_MONTHLY") -> None:
         """
-        Download monthly ECMWF data
-        
+        Download monthly ECMWF data using batch submission.
+
         Args:
             variables: Variable name(s) to download
             years: Year(s) to download
             months: Month(s) to download
             product_type: Type of monthly data
             times: Times for hourly averaged data (default: ["00:00", "01:00"])
-            dataset: ECMWF dataset name
+            dataset: ECMWF dataset name (collection ID)
             file_prefix: Prefix for output files
         """
         # Ensure lists
@@ -165,24 +256,30 @@ class ECMWFDownloader:
             years = [years]
         if isinstance(months, int):
             months = [months]
-        
+
         # Default times for monthly data
         if times is None:
             if "by_hour" in product_type:
                 times = [f"{i:02d}:00" for i in range(24)]
             else:
                 times = ["00:00", "01:00"]
-        
+
+        # Phase 1: Submit all requests (non-blocking)
+        print(f"\n=== Phase 1: Submitting batch requests ===")
+        job_info_list = []
+        skipped_count = 0
+
         for year in years:
             for month in months:
                 for variable in variables:
                     filename = f"{file_prefix}_{variable}_{month:02d}{year}.nc"
                     filepath = os.path.join(self.output_dir, filename)
-                    
+
                     if os.path.exists(filepath):
-                        print(f"File '{filename}' already exists. Skipping download.")
+                        print(f"  ⊙ File '{filename}' already exists. Skipping.")
+                        skipped_count += 1
                         continue
-                    
+
                     request = {
                         "product_type": [product_type],
                         "variable": variable,
@@ -194,10 +291,34 @@ class ECMWFDownloader:
                         "download_format": self.download_format,
                         "area": self.area
                     }
-                    
-                    print(f"Downloading {variable} for {month:02d}/{year}...")
-                    self.client.retrieve(dataset, request).download(filepath)
-                    print(f"Saved to {filepath}")
+
+                    try:
+                        print(f"  → Submitting: {variable} {month:02d}/{year}")
+                        remote = self.client.submit(dataset, request)
+
+                        metadata = {
+                            'variable': variable,
+                            'year': year,
+                            'month': month,
+                            'filename': filename
+                        }
+                        job_info_list.append((remote, filepath, metadata))
+
+                    except Exception as e:
+                        print(f"  ✗ Error submitting {variable} {month:02d}/{year}: {e}")
+
+        if skipped_count > 0:
+            print(f"\n⊙ Skipped {skipped_count} existing files")
+
+        if not job_info_list:
+            print("\n✓ No new files to download")
+            return
+
+        print(f"\n✓ Submitted {len(job_info_list)} requests")
+
+        # Phase 2: Monitor and download (combined)
+        print(f"\n=== Phase 2: Monitoring and downloading ===")
+        self._monitor_and_download_jobs(job_info_list)
 
 
 # Example usage configurations
