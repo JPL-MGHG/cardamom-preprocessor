@@ -20,9 +20,12 @@ References:
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 import json
+import logging
 from pathlib import Path
 import pystac
-from pystac import Item, Collection, Extent, SpatialExtent, TemporalExtent, Link, Asset
+from pystac import Item, Collection, Extent, SpatialExtent, TemporalExtent, Link, Asset, Catalog
+
+logger = logging.getLogger(__name__)
 
 
 # ========== STAC Collection Definitions ==========
