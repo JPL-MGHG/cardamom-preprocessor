@@ -29,74 +29,108 @@ This document traces the complete lifecycle of the atmospheric CO2 variable from
 
 ## 2. Python Implementation: Download & Processing
 
-### 2.1 NOAA Downloader (`src/noaa_downloader.py`)
+### 2.1 NOAA Downloader (`src/downloaders/noaa_downloader.py`)
 
-**Primary Class**: `NOAADownloader(BaseDownloader)` (line 18)
+**Primary Class**: `NOAADownloader(BaseDownloader)`
+
+**Status**: ✅ **Updated** - Now uses HTTPS and downloads entire dataset by default
 
 #### Download Process:
 ```python
-# FTP Configuration (OUTDATED - needs HTTPS update)
-self.ftp_server = "aftp.cmdl.noaa.gov"          # Line 41
-self.data_path = "/products/trends/co2/co2_mm_gl.txt"  # Line 42
+# HTTPS Configuration (Updated)
+NOAA_CO2_URL = 'https://gml.noaa.gov/webdata/ccgg/trends/co2/co2_mm_gl.csv'
 
-# Download method (lines 64-121)
-def download_raw_data(self, force_update: bool = False)
+# Download method
+def _download_co2_data(self) -> Dict[int, Dict[int, float]]
+    # Downloads entire CO2 dataset via HTTPS
+    # Parses CSV format: year,month,decimal_date,average_observed,std_dev,trend,trend_std
 ```
 
-**Status**: ⚠️ **Broken** - Uses outdated FTP URL, needs update to HTTPS
+**Key Improvements**:
+- Uses HTTPS instead of FTP
+- Downloads entire dataset (small ~100KB CSV file)
+- Supports both full dataset and single-month modes
 
 #### Data Parsing:
 ```python
-# Parse NOAA text format (lines 123-208)
-def parse_co2_data(self, filepath: Optional[str] = None)
+# Parse NOAA CSV format
+# Format: year,month,decimal_date,average_observed,std_dev,trend,trend_std
+# Example: 2020,1,2020.042,411.72,0.15,410.23,0.10
 
-# Key parsing logic (lines 160-180):
-year = int(parts[0])                    # Extract year
-month = int(parts[1])                   # Extract month
-co2_average = float(parts[3]) if parts[3] != '-99.99' else None      # Primary CO2 value
-co2_interpolated = float(parts[4]) if parts[4] != '-99.99' else None # Gap-filled CO2
+for line in response.text.split('\n'):
+    if not line or line.startswith('#'):
+        continue
+
+    parts = line.split(',')
+    year = int(parts[0].strip())
+    month = int(parts[1].strip())
+    co2_ppm = float(parts[3].strip())  # Use 'average_observed' column
 ```
 
 #### Spatial Replication:
 ```python
-# MATLAB-equivalent spatial replication (lines 287-290)
-co2_global = np.zeros((12, n_lat, n_lon))
-for month_idx in range(12):
-    co2_global[month_idx, :, :] = co2_monthly[month_idx]  # Replicate across space
+# For full dataset: Create 3D array [time, lat, lon]
+num_lat = int((89.75 - (-89.75)) / 0.5) + 1  # 360 points
+num_lon = int((179.75 - (-179.75)) / 0.5) + 1  # 720 points
+
+co2_grid_3d = np.zeros((num_time, num_lat, num_lon), dtype=np.float32)
+for t_idx, co2_val in enumerate(co2_values):
+    co2_grid_3d[t_idx, :, :] = co2_val  # Replicate spatially for each time step
 ```
 
-**MATLAB Reference**: This replicates MATLAB's `repmat(permute(NOAACO2.data), spatial_dims)` logic (line 287 comment)
+#### Two Download Modes:
 
-#### Default Spatial Grid:
+**Mode 1: Full Dataset (Default - Recommended)**
 ```python
-# CARDAMOM 0.5° global grid (lines 46-49)
-self.default_spatial_grid = {
-    'longitude': np.arange(-179.75, 180, 0.5),    # 720 points
-    'latitude': np.arange(-89.75, 90, 0.5)        # 360 points
-}
+# Download all available CO2 data
+results = downloader.download_and_process()
+# Creates: co2_1958_2024.nc (single file with complete time series)
+```
+
+**Mode 2: Single Month (Backwards Compatibility)**
+```python
+# Download specific month
+results = downloader.download_and_process(year=2020, month=1)
+# Creates: co2_2020_01.nc (single month file)
 ```
 
 ### 2.2 NetCDF Creation Process
 
-#### Variable Creation (lines 293-306):
+#### Variable Creation (Full Dataset Mode):
 ```python
-'co2_mole_fraction': (
-    ['time', 'latitude', 'longitude'],
-    co2_global,                    # Shape: (12, 360, 720)
+dataset = xr.Dataset(
     {
-        'long_name': 'Atmospheric CO2 mole fraction',
-        'units': 'ppm',
-        'standard_name': 'mole_fraction_of_carbon_dioxide_in_air',
-        'source': 'NOAA ESRL Global Monitoring Laboratory',
-        'description': 'Globally averaged atmospheric CO2 concentration replicated spatially'
+        'CO2': (
+            ['time', 'latitude', 'longitude'],
+            co2_grid_3d,  # Shape: (num_months, 360, 720)
+            {
+                'long_name': 'Atmospheric CO2 concentration',
+                'units': 'ppm',
+                'standard_name': 'mole_fraction_of_carbon_dioxide_in_air',
+                'description': 'Global monthly mean atmospheric CO2 concentration replicated spatially'
+            }
+        )
+    },
+    coords={
+        'time': time_steps,  # List of datetime objects
+        'latitude': lats,    # -89.75 to 89.75 by 0.5°
+        'longitude': lons    # -179.75 to 179.75 by 0.5°
     }
 )
 ```
 
 #### Output Files:
-- **Pattern**: `NOAA_CO2_GLOBAL_{year}.nc` (line 337)
-- **Directory**: `./DATA/NOAA_CO2/` (default)
-- **Dimensions**: `[time: 12, latitude: 360, longitude: 720]`
+- **Full Dataset Mode**:
+  - Pattern: `co2_{start_year}_{end_year}.nc` (e.g., `co2_1958_2024.nc`)
+  - Dimensions: `[time: ~800 months, latitude: 360, longitude: 720]`
+
+- **Single Month Mode**:
+  - Pattern: `co2_{year}_{month:02d}.nc` (e.g., `co2_2020_01.nc`)
+  - Dimensions: `[time: 1, latitude: 360, longitude: 720]`
+
+- **Directory**: `{output_dir}/data/` (default)
+
+**Scientific Rationale**: Since atmospheric CO2 is well-mixed globally and the source file is small, downloading the entire time series is more efficient and provides complete historical context for CARDAMOM modeling.
 
 ## 3. Integration into CARDAMOM Pipeline
 
@@ -259,15 +293,21 @@ def set_forcing_variables(target_ds, source_met_ds, lat, lon, scaffold_ds, posit
 ## 6. Data Flow Summary
 
 ```
-NOAA GML Data Source
+NOAA GML Data Source (HTTPS)
         ↓
-    [co2_mm_gl.txt]
+    [co2_mm_gl.csv]                 (CSV format, ~100KB)
         ↓
-NOAADownloader.parse_co2_data()      [src/noaa_downloader.py:123-208]
+NOAADownloader._download_co2_data() [src/downloaders/noaa_downloader.py]
         ↓
-NOAADownloader.create_cardamom_co2_files()  [src/noaa_downloader.py:210-357]
+    Parse CSV and create time series
         ↓
-    [NOAA_CO2_GLOBAL_{year}.nc]     (spatial replication occurs here)
+NOAADownloader._download_all_data() OR _download_single_month()
+        ↓
+    [co2_1958_2024.nc]              (full dataset - recommended)
+    OR
+    [co2_YYYY_MM.nc]                (single month - backwards compatibility)
+        ↓
+    (spatial replication occurs during NetCDF creation)
         ↓
 CBFMetProcessor._load_co2_data()     [src/cbf_met_processor.py:725-763]
         ↓
@@ -282,27 +322,45 @@ CBF file creation                    [matlab-migration/erens_cbf_code.py]
 CARDAMOM Model Input                 (atmospheric boundary condition)
 ```
 
-## 7. Current Issues & Required Updates
+## 7. Recent Updates (2024)
 
-### 7.1 Critical Issues:
-1. **Broken Download URL**: Line 41-42 in `src/noaa_downloader.py` uses outdated FTP server
-   - **Current (broken)**: `ftp://aftp.cmdl.noaa.gov/products/trends/co2/co2_mm_gl.txt`
-   - **Should be**: `https://gml.noaa.gov/webdata/ccgg/trends/co2/co2_mm_gl.txt`
+### 7.1 Resolved Issues:
+✅ **Fixed Download URL**: Updated from outdated FTP to HTTPS
+   - **Old (broken)**: `ftp://aftp.cmdl.noaa.gov/products/trends/co2/co2_mm_gl.txt`
+   - **New (working)**: `https://gml.noaa.gov/webdata/ccgg/trends/co2/co2_mm_gl.csv`
 
-2. **Protocol Change**: Need to replace `ftplib` with `requests` for HTTPS download
+✅ **Protocol Change**: Replaced `ftplib` with `requests` for HTTPS download
 
-### 7.2 Required Updates:
+✅ **Full Dataset Download**: Now downloads entire time series by default
+   - More efficient than monthly downloads (source file is small)
+   - Provides complete historical context
+   - Single NetCDF file with all time steps
+
+✅ **Backwards Compatibility**: Single-month download mode still available
+
+### 7.2 Current Implementation:
 ```python
-# Update needed in src/noaa_downloader.py:
-# OLD (lines 41-42):
-self.ftp_server = "aftp.cmdl.noaa.gov"
-self.data_path = "/products/trends/co2/co2_mm_gl.txt"
+# Updated implementation in src/downloaders/noaa_downloader.py
 
-# NEW:
-self.base_url = "https://gml.noaa.gov/webdata/ccgg/trends/co2/"
-self.data_file = "co2_mm_gl.txt"
+# HTTPS URL
+NOAA_CO2_URL = 'https://gml.noaa.gov/webdata/ccgg/trends/co2/co2_mm_gl.csv'
 
-# Replace FTP download method (lines 88-94) with HTTPS requests
+# Download entire dataset (default)
+results = downloader.download_and_process()
+# Creates: co2_1958_2024.nc (~60MB, complete time series)
+
+# Or download specific month (backwards compatibility)
+results = downloader.download_and_process(year=2020, month=1)
+# Creates: co2_2020_01.nc (~200KB, single time step)
+```
+
+### 7.3 CLI Usage:
+```bash
+# Download entire CO2 dataset (recommended)
+python -m src.stac_cli noaa --output ./output
+
+# Download specific month (backwards compatibility)
+python -m src.stac_cli noaa --year 2020 --month 1 --output ./output
 ```
 
 ## 8. Validation & Quality Control

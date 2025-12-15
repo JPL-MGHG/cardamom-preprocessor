@@ -31,7 +31,7 @@
         <mxCell id="legend-file-text" value="File / Artifact" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
           <mxGeometry x="60" y="170" width="140" height="20" as="geometry" />
         </mxCell>
-        <mxCell id="source-data" value="NOAA GML&lt;br&gt;&lt;b&gt;Global Mean CO2&lt;/b&gt;&lt;br&gt;(Text File)" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;strokeWidth=2;fontSize=12;fontStyle=0;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+        <mxCell id="source-data" value="NOAA GML&lt;br&gt;(&lt;i&gt;gml.noaa.gov&lt;/i&gt;)&lt;br&gt;&lt;b&gt;Global Mean CO2&lt;/b&gt;&lt;br&gt;(Text File)" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;strokeWidth=2;fontSize=12;fontStyle=0;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
           <mxGeometry x="80" y="460" width="180" height="80" as="geometry" />
         </mxCell>
         <mxCell id="downloader" value="noaa_downloader.py" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;align=center;" parent="1" vertex="1">

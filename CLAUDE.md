@@ -134,7 +134,7 @@ The algorithm is designed as a **NASA MAAP algorithm** with the following charac
 
 ## Connection to CARDAMOM Framework
 
-This preprocessor creates meteorological inputs for the main CARDAMOM framework. The downloaded ERA5 data provides essential climate drivers for:
+This preprocessor creates meteorological inputs and processes data for the main CARDAMOM framework. The downloaded ERA5 data provides essential climate drivers for:
 
 - **DALEC model simulations**: Photosynthesis, respiration, and carbon allocation processes
 - **Bayesian parameter estimation**: Constraining ecosystem model parameters using observations
@@ -142,6 +142,40 @@ This preprocessor creates meteorological inputs for the main CARDAMOM framework.
 - **CBF file generation**: Input format for CARDAMOM C framework execution
 
 The preprocessor maintains compatibility with CARDAMOM's NetCDF-based data pipeline and CBF (CARDAMOM Binary Format) requirements.
+
+### CBF (CARDAMOM Binary Format) File Generation
+
+The preprocessor includes functionality to generate CBF files for CARDAMOM carbon cycle modeling. This process:
+
+1. **Accepts user-provided NetCDF files** for:
+   - Land-sea fraction masks (identifies valid land pixels for processing)
+   - Meteorological driver data (temperature, precipitation, radiation, etc.)
+   - Observational constraint data (LAI, GPP, biomass, soil moisture, etc.)
+   - Fire emission data (burned area, fire carbon emissions)
+   - Soil organic matter initialization data
+
+2. **Spatial filtering**: Processes only pixels above a land fraction threshold within specified latitude/longitude ranges
+
+3. **Pixel-level data extraction**: For each valid land pixel, extracts corresponding data from meteorological and observational sources
+
+4. **Variable processing**:
+   - Applies unit conversions (Kelvin to Celsius, m/s to mm/day, etc.)
+   - Ensures physical constraints (positive values where appropriate)
+   - Calculates derived variables (Vapor Pressure Deficit from temperature and dewpoint)
+
+5. **CBF structure creation**: Generates NetCDF files with:
+   - Meteorological forcing variables
+   - Observational constraints with uncertainty specifications
+   - Single-value constraints (initial soil carbon, plant carbon use efficiency, etc.)
+   - MCMC configuration parameters
+
+6. **Output format**: Creates CBF-compliant NetCDF files following CARDAMOM specifications for the carbon cycle data assimilation system
+
+**User-provided data requirements:**
+- All input files must be in NetCDF format
+- Consistent spatial grids across meteorological and observational datasets
+- Compatible temporal dimensions (or scalar for single-value constraints)
+- Proper variable naming (documented in input data specifications)
 
 ## Scientist-Friendly Coding Standards
 
