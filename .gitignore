@@ -214,3 +214,4 @@ notebooks/
 plans/pdfs/
 plans/images/
 DATA/
+.vscode/launch.json
