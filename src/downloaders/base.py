@@ -21,7 +21,6 @@ from datetime import datetime
 import logging
 import xarray as xr
 import numpy as np
-from src.stac_utils import create_stac_collection, create_stac_item, write_stac_output
 
 # Configure logging for downloaders
 logger = logging.getLogger(__name__)
@@ -335,6 +334,9 @@ class BaseDownloader(ABC):
                 - 'items': List of pystac.Item objects
                 - 'stac_output_dir': Path where STAC files were written
         """
+
+        # Import STAC functions locally to avoid circular imports
+        from stac_utils import create_stac_collection, create_stac_item, write_stac_output
 
         # Create STAC Collection
         collection = create_stac_collection(

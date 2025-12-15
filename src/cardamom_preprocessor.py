@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Union
 
 # Import ECMWF downloader from package
-from ecmwf_downloader import ECMWFDownloader
+from downloaders.ecmwf_downloader import ECMWFDownloader
 
 # Import CARDAMOM core modules
 from config_manager import CardamomConfig

@@ -12,6 +12,6 @@ compute instances without shared filesystem requirements, suitable for distribut
 processing systems like NASA MAAP.
 """
 
-from src.downloaders.base import BaseDownloader
+from downloaders.base import BaseDownloader
 
 __all__ = ['BaseDownloader']
