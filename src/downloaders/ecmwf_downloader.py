@@ -26,7 +26,7 @@ import xarray as xr
 import cdsapi
 import warnings
 
-from .base import BaseDownloader
+from downloaders.base import BaseDownloader
 from atmospheric_science import (
     calculate_vapor_pressure_deficit_matlab,
     saturation_pressure_water_matlab,
@@ -88,6 +88,35 @@ class ECMWFDownloader(BaseDownloader):
 
         self.requested_variables = []
         self.raw_variables_needed = []
+
+    def _get_time_dimension(self, dataset: xr.Dataset) -> str:
+        """
+        Identify the time dimension name in an xarray Dataset.
+
+        ERA5 datasets may use 'time', 'valid_time', or other time dimension names.
+        This method detects which one is present.
+
+        Args:
+            dataset (xr.Dataset): xarray Dataset to check
+
+        Returns:
+            str: Name of the time dimension
+
+        Raises:
+            ValueError: If no recognized time dimension is found
+        """
+
+        time_dim_candidates = ['time', 'valid_time']
+
+        for candidate in time_dim_candidates:
+            if candidate in dataset.dims:
+                logger.debug(f"Detected time dimension: {candidate}")
+                return candidate
+
+        raise ValueError(
+            f"No recognized time dimension found in dataset. "
+            f"Available dimensions: {list(dataset.dims.keys())}"
+        )
 
     def _resolve_variable_dependencies(
         self, variables: List[str]
@@ -186,15 +215,28 @@ class ECMWFDownloader(BaseDownloader):
                     downloaded_files[raw_variable] = output_filepath
                     continue
 
-                logger.info(f"Downloading {raw_variable} for {year}-{month:02d}")
+                # Determine product type and time parameters based on variable
+                # Temperature and dewpoint need hourly data for min/max calculations
+                if raw_variable in ['2m_temperature', '2m_dewpoint_temperature']:
+                    product_type = 'monthly_averaged_reanalysis_by_hour_of_day'
+                    # Request all 24 hours in single API call (more efficient)
+                    time_param = [f'{h:02d}:00' for h in range(24)]
+                else:
+                    product_type = 'monthly_averaged_reanalysis'
+                    time_param = '00:00'
+
+                logger.info(
+                    f"Downloading {raw_variable} for {year}-{month:02d} "
+                    f"using product_type={product_type}"
+                )
 
                 # CDS API request for monthly averaged ERA5 data
                 cds_request = {
-                    'product_type': 'monthly_averaged_reanalysis',
+                    'product_type': product_type,
                     'variable': raw_variable,
                     'year': str(year),
                     'month': f'{month:02d}',
-                    'time': '00:00',
+                    'time': time_param,
                     'format': 'netcdf',
                 }
 
@@ -300,14 +342,17 @@ class ECMWFDownloader(BaseDownloader):
         extrema_type: str = 'min',
     ) -> xr.Dataset:
         """
-        Extract monthly minimum or maximum temperature from hourly/sub-daily data.
+        Extract monthly minimum or maximum temperature from hourly data.
+
+        Uses 'monthly_averaged_reanalysis_by_hour_of_day' product which provides
+        24 values (one for each hour UTC) from which monthly extrema are computed.
 
         Args:
-            temperature_file (Path): NetCDF file with temperature data
+            temperature_file (Path): NetCDF file with hourly temperature data
             extrema_type (str): 'min' or 'max'
 
         Returns:
-            xr.Dataset: Dataset with extrema temperature
+            xr.Dataset: Dataset with extrema temperature in Kelvin
         """
 
         ds = xr.open_dataset(temperature_file)
@@ -315,10 +360,12 @@ class ECMWFDownloader(BaseDownloader):
             ds.data_vars
         )[0]
 
+        time_dim = self._get_time_dimension(ds)
+
         if extrema_type == 'min':
-            extrema_data = ds[temp_var].min(dim='time', skipna=True)
+            extrema_data = ds[temp_var].min(dim=time_dim, skipna=True)
         else:
-            extrema_data = ds[temp_var].max(dim='time', skipna=True)
+            extrema_data = ds[temp_var].max(dim=time_dim, skipna=True)
 
         ds.close()
 
@@ -356,11 +403,14 @@ class ECMWFDownloader(BaseDownloader):
             ds_dew.data_vars
         )[0]
 
+        time_dim_temp = self._get_time_dimension(ds_temp)
+        time_dim_dew = self._get_time_dimension(ds_dew)
+
         # Get monthly maximum temperature
-        temperature_max_kelvin = ds_temp[temp_var].max(dim='time', skipna=True).values
+        temperature_max_kelvin = ds_temp[temp_var].max(dim=time_dim_temp, skipna=True).values
 
         # Get monthly maximum dewpoint temperature (for consistency with MATLAB formula)
-        dewpoint_celsius = ds_dew[dew_var].max(dim='time', skipna=True).values - 273.15
+        dewpoint_celsius = ds_dew[dew_var].max(dim=time_dim_dew, skipna=True).values - 273.15
 
         # Convert temperature max to Celsius for VPD calculation
         temperature_max_celsius = temperature_max_kelvin - 273.15
@@ -407,8 +457,10 @@ class ECMWFDownloader(BaseDownloader):
             ds.data_vars
         )[0]
 
+        time_dim = self._get_time_dimension(ds)
+
         # Sum over time dimension to get monthly total
-        precip_monthly_m = ds[precip_var].sum(dim='time', skipna=True).values
+        precip_monthly_m = ds[precip_var].sum(dim=time_dim, skipna=True).values
 
         # Convert m to mm
         precip_mm = precip_monthly_m * 1000
@@ -441,7 +493,13 @@ class ECMWFDownloader(BaseDownloader):
         """
         Convert radiation from J/m² to W/m².
 
-        ERA5 monthly radiation is accumulated; divide by month length in seconds.
+        ERA5 monthly_averaged_reanalysis provides mean daily accumulation in J/m².
+        Convert to instantaneous rate in W/m² by dividing by seconds per day.
+
+        Scientific Background:
+        - Input: Mean daily radiation accumulation (J/m² per day)
+        - Output: Instantaneous radiation flux (W/m² = J/m²/s)
+        - Conversion: J/m²/day ÷ 86400 s/day = W/m²
 
         Args:
             radiation_file (Path): NetCDF with radiation data
@@ -454,13 +512,15 @@ class ECMWFDownloader(BaseDownloader):
         ds = xr.open_dataset(radiation_file)
         rad_var = list(ds.data_vars)[0]
 
-        radiation_j_m2 = ds[rad_var].values
+        time_dim = self._get_time_dimension(ds)
 
-        # Assume monthly accumulation; convert to daily average then to W/m²
-        # Days in month varies; use ~30 days as default for monthly mean
-        seconds_per_month = 30 * 86400  # Approximate
+        radiation_j_m2 = ds[rad_var].mean(dim=time_dim, skipna=True).values
 
-        radiation_w_m2 = radiation_j_m2 / seconds_per_month
+        # ERA5 monthly_averaged_reanalysis provides mean daily accumulation
+        # Units: J/m² per day → convert to W/m² (J/m²/s)
+        seconds_per_day = 86400  # 24 hours * 3600 seconds
+
+        radiation_w_m2 = radiation_j_m2 / seconds_per_day
 
         ds.close()
 
@@ -498,8 +558,10 @@ class ECMWFDownloader(BaseDownloader):
             ds.data_vars
         )[0]
 
+        time_dim = self._get_time_dimension(ds)
+
         # Take monthly mean
-        skt_mean = ds[skt_var].mean(dim='time', skipna=True).values
+        skt_mean = ds[skt_var].mean(dim=time_dim, skipna=True).values
 
         ds.close()
 
@@ -533,8 +595,10 @@ class ECMWFDownloader(BaseDownloader):
             ds.data_vars
         )[0]
 
+        time_dim = self._get_time_dimension(ds)
+
         # Sum over time to get monthly total
-        snow_monthly_m = ds[snow_var].sum(dim='time', skipna=True).values
+        snow_monthly_m = ds[snow_var].sum(dim=time_dim, skipna=True).values
 
         # Convert m to mm
         snow_mm = snow_monthly_m * 1000
