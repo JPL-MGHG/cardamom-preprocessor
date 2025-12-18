@@ -578,7 +578,7 @@ def test_carbon_flux_unit_conversion():
     )
 ```
 
-These standards ensure that all code in the CARDAMOM preprocessor remains accessible to scientists while maintaining technical excellence. Remember: when in doubt, choose clarity over cleverness.
+These standards ensure that all code in the CARDAMOM prepr  ocessor remains accessible to scientists while maintaining technical excellence. Remember: when in doubt, choose clarity over cleverness.
 - use .venv for python commands
 - keep testing simple not too extensive
 - remember to look at matlab-migration/cardamom-matlab for matlab functions
