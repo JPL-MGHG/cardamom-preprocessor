@@ -714,6 +714,8 @@ class ECMWFDownloader(BaseDownloader):
             collection_keywords=['era5', 'meteorology', 'cardamom'],
             items_data=stac_items_data,
             temporal_start=datetime(year, month, 1),
+            incremental=kwargs.get('incremental', True),
+            duplicate_policy=kwargs.get('duplicate_policy', 'update'),
         )
 
         # Step 5: Clean up raw files if requested

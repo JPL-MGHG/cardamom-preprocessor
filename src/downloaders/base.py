@@ -43,7 +43,7 @@ class BaseDownloader(ABC):
 
     # Subdirectory names (can be overridden by subclasses)
     data_subdir = 'data'
-    stac_subdir = 'stac'
+    stac_subdir = ''  # Empty string - collections go directly in output_directory
     raw_subdir = 'raw'
 
     def __init__(
@@ -82,7 +82,10 @@ class BaseDownloader(ABC):
         """Create output directory structure."""
 
         (self.output_directory / self.data_subdir).mkdir(parents=True, exist_ok=True)
-        (self.output_directory / self.stac_subdir).mkdir(parents=True, exist_ok=True)
+
+        # Only create stac_subdir if it's non-empty (empty string means collections at root)
+        if self.stac_subdir:
+            (self.output_directory / self.stac_subdir).mkdir(parents=True, exist_ok=True)
 
         if self.keep_raw_files:
             (self.output_directory / self.raw_subdir).mkdir(parents=True, exist_ok=True)
@@ -310,9 +313,15 @@ class BaseDownloader(ABC):
         items_data: List[Dict[str, Any]],
         temporal_start: datetime,
         temporal_end: Optional[datetime] = None,
+        incremental: bool = True,
+        duplicate_policy: str = 'update',
     ) -> Dict[str, Any]:
         """
-        Create STAC Collection and Items, then write to filesystem.
+        Create STAC Collection and Items, then write to filesystem with incremental updates.
+
+        This method creates STAC metadata for downloaded data and writes it to disk.
+        When incremental mode is enabled (default), new items are merged with existing
+        collection metadata, preserving historical data across multiple download runs.
 
         Args:
             collection_id (str): Unique collection identifier
@@ -327,12 +336,18 @@ class BaseDownloader(ABC):
                 - 'properties': Optional dict of additional properties
             temporal_start (datetime): Start of temporal coverage
             temporal_end (Optional[datetime]): End of temporal coverage
+            incremental (bool): Enable incremental STAC updates (default: True)
+            duplicate_policy (str): How to handle duplicate items (default: 'update')
+                - 'update': Replace existing item with new item
+                - 'skip': Keep existing item, ignore new item
+                - 'error': Raise error for user decision
 
         Returns:
             Dict[str, Any]: Dictionary with keys:
                 - 'collection': pystac.Collection object
                 - 'items': List of pystac.Item objects
                 - 'stac_output_dir': Path where STAC files were written
+                - 'merge_stats': Dict with merge statistics (items_added, items_updated, etc.)
         """
 
         # Import STAC functions locally to avoid circular imports
@@ -361,14 +376,26 @@ class BaseDownloader(ABC):
             )
             items.append(item)
 
-        # Write STAC files
-        stac_output_dir = self.output_directory / self.stac_subdir / collection_id
-        write_stac_output(collection, items, str(stac_output_dir))
+        # Write STAC files with incremental updates
+        # If stac_subdir is empty, collections go directly in output_directory
+        if self.stac_subdir:
+            stac_output_dir = self.output_directory / self.stac_subdir / collection_id
+        else:
+            stac_output_dir = self.output_directory / collection_id
+
+        merge_stats = write_stac_output(
+            collection,
+            items,
+            str(stac_output_dir),
+            incremental=incremental,
+            duplicate_policy=duplicate_policy,
+        )
 
         return {
             'collection': collection,
             'items': items,
             'stac_output_dir': stac_output_dir,
+            'merge_stats': merge_stats,
         }
 
     def cleanup_raw_files(self, file_paths: List[Path]) -> None:

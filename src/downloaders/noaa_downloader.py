@@ -230,7 +230,7 @@ class NOAADownloader(BaseDownloader):
         if year is not None and month is not None:
             self.validate_temporal_parameters(year, month)
             logger.info(f"Starting NOAA CO2 download for {year}-{month:02d}")
-            return self._download_single_month(year, month)
+            return self._download_single_month(year, month, **kwargs)
         elif year is not None or month is not None:
             raise ValueError(
                 "Both year and month must be specified together, or both omitted. "
@@ -238,12 +238,13 @@ class NOAADownloader(BaseDownloader):
             )
         else:
             logger.info("Starting NOAA CO2 download for entire available dataset")
-            return self._download_all_data()
+            return self._download_all_data(**kwargs)
 
     def _download_single_month(
         self,
         year: int,
         month: int,
+        **kwargs,
     ) -> Dict[str, Any]:
         """
         Download and process NOAA CO2 data for a specific month.
@@ -310,6 +311,8 @@ class NOAADownloader(BaseDownloader):
                 }
             ],
             temporal_start=datetime(year, month, 1),
+            incremental=kwargs.get('incremental', True),
+            duplicate_policy=kwargs.get('duplicate_policy', 'update'),
         )
 
         logger.info(f"Successfully created CO2 NetCDF: {output_file}")
@@ -321,7 +324,7 @@ class NOAADownloader(BaseDownloader):
             'success': True,
         }
 
-    def _download_all_data(self) -> Dict[str, Any]:
+    def _download_all_data(self, **kwargs) -> Dict[str, Any]:
         """
         Download and process all available NOAA CO2 data.
 
@@ -441,6 +444,8 @@ class NOAADownloader(BaseDownloader):
                 }
             ],
             temporal_start=time_steps[0],
+            incremental=kwargs.get('incremental', True),
+            duplicate_policy=kwargs.get('duplicate_policy', 'update'),
         )
 
         logger.info(f"Successfully created complete CO2 NetCDF: {output_file}")

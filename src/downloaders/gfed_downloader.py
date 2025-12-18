@@ -352,6 +352,8 @@ class GFEDDownloader(BaseDownloader):
                 }
             ],
             temporal_start=datetime(year, month, 1),
+            incremental=kwargs.get('incremental', True),
+            duplicate_policy=kwargs.get('duplicate_policy', 'update'),
         )
 
         # Step 7: Clean up raw files if requested

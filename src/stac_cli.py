@@ -38,7 +38,7 @@ from typing import List
 from downloaders.ecmwf_downloader import ECMWFDownloader
 from downloaders.noaa_downloader import NOAADownloader
 from downloaders.gfed_downloader import GFEDDownloader
-from cbf_generator import CBFGenerator
+from cbf_main import generate_cbf_files
 
 # Configure logging
 logging.basicConfig(
@@ -101,6 +101,21 @@ def create_ecmwf_parser(subparsers) -> None:
         help='Print debug information'
     )
 
+    parser.add_argument(
+        '--no-stac-incremental',
+        action='store_true',
+        help='Disable incremental STAC updates (overwrite existing catalog instead of merging)'
+    )
+
+    parser.add_argument(
+        '--stac-duplicate-policy',
+        type=str,
+        choices=['update', 'skip', 'error'],
+        default='update',
+        help='How to handle duplicate STAC items when incremental mode is enabled '
+             '(default: update - replace existing items with new data)'
+    )
+
     parser.set_defaults(func=handle_ecmwf_download)
 
 
@@ -139,6 +154,21 @@ def create_noaa_parser(subparsers) -> None:
         '--verbose',
         action='store_true',
         help='Print debug information'
+    )
+
+    parser.add_argument(
+        '--no-stac-incremental',
+        action='store_true',
+        help='Disable incremental STAC updates (overwrite existing catalog instead of merging)'
+    )
+
+    parser.add_argument(
+        '--stac-duplicate-policy',
+        type=str,
+        choices=['update', 'skip', 'error'],
+        default='update',
+        help='How to handle duplicate STAC items when incremental mode is enabled '
+             '(default: update - replace existing items with new data)'
     )
 
     parser.set_defaults(func=handle_noaa_download)
@@ -183,6 +213,21 @@ def create_gfed_parser(subparsers) -> None:
         '--verbose',
         action='store_true',
         help='Print debug information'
+    )
+
+    parser.add_argument(
+        '--no-stac-incremental',
+        action='store_true',
+        help='Disable incremental STAC updates (overwrite existing catalog instead of merging)'
+    )
+
+    parser.add_argument(
+        '--stac-duplicate-policy',
+        type=str,
+        choices=['update', 'skip', 'error'],
+        default='update',
+        help='How to handle duplicate STAC items when incremental mode is enabled '
+             '(default: update - replace existing items with new data)'
     )
 
     parser.set_defaults(func=handle_gfed_download)
@@ -259,11 +304,25 @@ def handle_ecmwf_download(args) -> int:
             variables=variables,
             year=args.year,
             month=args.month,
+            incremental=not args.no_stac_incremental,
+            duplicate_policy=args.stac_duplicate_policy,
         )
 
         logger.info(f"✓ ECMWF download successful")
         logger.info(f"  Generated {len(results['output_files'])} files")
         logger.info(f"  Output directory: {args.output}")
+
+        # Create/update root STAC catalog at output root
+        from stac_utils import create_root_catalog
+        output_path = Path(args.output)
+        # Find all collection directories (they're directly in output, not in stac/)
+        collection_dirs = [d for d in output_path.iterdir() if d.is_dir() and (d / 'collection.json').exists()]
+        if collection_dirs:
+            collection_ids = [d.name for d in collection_dirs]
+            create_root_catalog(
+                stac_output_root=str(output_path),
+                collection_ids=collection_ids,
+            )
 
         return 0
 
@@ -292,6 +351,8 @@ def handle_noaa_download(args) -> int:
         results = downloader.download_and_process(
             year=args.year,
             month=args.month,
+            incremental=not args.no_stac_incremental,
+            duplicate_policy=args.stac_duplicate_policy,
         )
 
         logger.info(f"✓ NOAA download successful")
@@ -304,6 +365,18 @@ def handle_noaa_download(args) -> int:
             logger.info(f"  Time range: {start_year}-{end_year} ({num_steps} months)")
 
         logger.info(f"  Output directory: {args.output}")
+
+        # Create/update root STAC catalog at output root
+        from stac_utils import create_root_catalog
+        output_path = Path(args.output)
+        # Find all collection directories (they're directly in output, not in stac/)
+        collection_dirs = [d for d in output_path.iterdir() if d.is_dir() and (d / 'collection.json').exists()]
+        if collection_dirs:
+            collection_ids = [d.name for d in collection_dirs]
+            create_root_catalog(
+                stac_output_root=str(output_path),
+                collection_ids=collection_ids,
+            )
 
         return 0
 
@@ -329,11 +402,25 @@ def handle_gfed_download(args) -> int:
         results = downloader.download_and_process(
             year=args.year,
             month=args.month,
+            incremental=not args.no_stac_incremental,
+            duplicate_policy=args.stac_duplicate_policy,
         )
 
         logger.info(f"✓ GFED download successful")
         logger.info(f"  Generated {len(results['output_files'])} files")
         logger.info(f"  Output directory: {args.output}")
+
+        # Create/update root STAC catalog at output root
+        from stac_utils import create_root_catalog
+        output_path = Path(args.output)
+        # Find all collection directories (they're directly in output, not in stac/)
+        collection_dirs = [d for d in output_path.iterdir() if d.is_dir() and (d / 'collection.json').exists()]
+        if collection_dirs:
+            collection_ids = [d.name for d in collection_dirs]
+            create_root_catalog(
+                stac_output_root=str(output_path),
+                collection_ids=collection_ids,
+            )
 
         return 0
 
@@ -348,24 +435,24 @@ def handle_cbf_generate(args) -> int:
     try:
         logger.info("Starting CBF generator")
 
-        # Initialize CBF generator
-        generator = CBFGenerator(
-            stac_api_url=args.stac_api,
-            output_directory=args.output,
-            verbose=args.verbose,
-        )
+        # Set logging level based on verbose flag
+        if args.verbose:
+            logging.getLogger().setLevel(logging.DEBUG)
 
         # Generate CBF files
-        results = generator.generate(
+        results = generate_cbf_files(
+            stac_source=args.stac_api,
             start_date=args.start,
             end_date=args.end,
-            region=args.region,
+            output_directory=args.output,
+            # region parameter not yet implemented in generate_cbf_files
+            # For now, use default CONUS region from cbf_main constants
         )
 
         logger.info(f"✓ CBF generation successful")
-        logger.info(f"  Generated {results['metadata']['num_files']} CBF files")
-        logger.info(f"  Output directory: {args.output}")
-        logger.info(f"  Region: {results['metadata']['region']}")
+        logger.info(f"  Successful pixels: {results['successful_pixels']}")
+        logger.info(f"  Failed pixels: {results['failed_pixels']}")
+        logger.info(f"  Output directory: {results['output_directory']}")
 
         return 0
 
