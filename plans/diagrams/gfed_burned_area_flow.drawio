@@ -1,0 +1,89 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="GFED Burned Area Data Flow" id="gfed-burned-area">
+    <mxGraphModel dx="1434" dy="1100" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="1200">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- CLI Entry Point -->
+        <mxCell id="cli-entry" value="CLI Command&#xa;python -m src.stac_cli gfed&#xa;--year 2020 --month 1&#xa;--output ./output&#xa;--keep-raw (optional)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;align=left" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="340" height="100" as="geometry"/>
+        </mxCell>
+
+        <!-- HTTP Download -->
+        <mxCell id="http-download" value="HTTP Download from ORNL DAAC&#xa;_download_gfed_yearly_file()&#xa;&#xa;URL: https://daac.ornl.gov/daacdata/Global_Fire_Emissions_Database/&#xa;     GFED4.1_Gridded_Burned_Area/HDF5/GFED4.1s_2020.hdf5&#xa;&#xa;File Naming: GFED4.1s_{year}.hdf5&#xa;Method: requests.get()&#xa;Timeout: 300 seconds (5 minutes)&#xa;&#xa;Fallback: Local filesystem if download fails&#xa;  Paths: /data/gfed/, ~/data/gfed/, /tmp/gfed/&#xa;&#xa;Caching: Yearly files cached to avoid re-download" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left" vertex="1" parent="1">
+          <mxGeometry x="40" y="180" width="520" height="200" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge1" edge="1" parent="1" source="cli-entry" target="http-download">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Raw HDF5 File -->
+        <mxCell id="raw-hdf5" value="Raw GFED HDF5 File&#xa;File: raw/GFED4.1s_2020.hdf5&#xa;&#xa;HDF5 Structure:&#xa;  /burned_area/&#xa;    /January/burned_area&#xa;    /February/burned_area&#xa;    ...&#xa;    /December/burned_area&#xa;&#xa;Each monthly dataset:&#xa;  Dimensions: [720, 1440] (native 0.25° resolution)&#xa;  Units: Fraction of grid cell burned&#xa;  Range: 0.0 to 1.0&#xa;&#xa;Reference: Giglio et al. (2013)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left" vertex="1" parent="1">
+          <mxGeometry x="40" y="420" width="380" height="220" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge2" edge="1" parent="1" source="http-download" target="raw-hdf5">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- HDF5 Extraction -->
+        <mxCell id="hdf5-extract" value="Extract Monthly Burned Area&#xa;_extract_burned_area_from_hdf5()&#xa;&#xa;Month Name Mapping:&#xa;  1 → 'January', 2 → 'February', ..., 12 → 'December'&#xa;&#xa;HDF5 Navigation:&#xa;  1. Open HDF5 file with h5py.File()&#xa;  2. Navigate to /burned_area/{month_name}/&#xa;  3. Read dataset: burned_area[:]&#xa;&#xa;Output:&#xa;  np.ndarray with shape [720, 1440]&#xa;  Native GFED 0.25° resolution&#xa;  Values: Burned area fraction (0-1)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left" vertex="1" parent="1">
+          <mxGeometry x="480" y="420" width="400" height="220" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge3" edge="1" parent="1" source="raw-hdf5" target="hdf5-extract">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Regridding -->
+        <mxCell id="regrid" value="Regrid to CARDAMOM Resolution&#xa;_regrid_gfed_to_cardamom()&#xa;&#xa;Spatial Transformation:&#xa;  Input: GFED native 0.25° → [720, 1440]&#xa;  Output: CARDAMOM 0.5° → [360, 720]&#xa;  Factor: 2 (each CARDAMOM cell = 2×2 GFED cells)&#xa;&#xa;Method: Simple averaging&#xa;  For each CARDAMOM cell (i, j):&#xa;    gfed_i = i * 2 : (i+1) * 2&#xa;    gfed_j = j * 2 : (j+1) * 2&#xa;    cardamom[i,j] = mean(gfed[gfed_i:gfed_i+2, gfed_j:gfed_j+2])&#xa;&#xa;Preserves area-weighted burned fraction&#xa;&#xa;Output shape: [360, 720]" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left" vertex="1" parent="1">
+          <mxGeometry x="40" y="680" width="520" height="240" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge4" edge="1" parent="1" source="hdf5-extract" target="regrid">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Standard NetCDF Creation -->
+        <mxCell id="standard-nc" value="Create Standard CARDAMOM NetCDF&#xa;create_standard_netcdf_dataset()&#xa;&#xa;Output Grid:&#xa;  Latitude: -89.75° to 89.75° (0.5° resolution) = 360 points&#xa;  Longitude: -179.75° to 179.75° (0.5° resolution) = 720 points&#xa;  Time: Single value (2020-01-01)&#xa;&#xa;Conventions: CF-1.8&#xa;Encoding: float32, zlib compression level 4" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left" vertex="1" parent="1">
+          <mxGeometry x="620" y="680" width="420" height="160" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge5" edge="1" parent="1" source="regrid" target="standard-nc">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Final Output -->
+        <mxCell id="output" value="Output NetCDF File&#xa;File: output/data/burned_area_2020_01.nc&#xa;&#xa;Dimensions:&#xa;  time: 1&#xa;  latitude: 360&#xa;  longitude: 720&#xa;&#xa;Variable: BURNED_AREA [fraction]&#xa;Units: fraction (0 to 1)&#xa;Fill Value: -9999.0&#xa;Description: Monthly burned area fraction of grid cell&#xa;&#xa;Scientific Interpretation:&#xa;  0.0 = No burning&#xa;  0.5 = 50% of grid cell burned&#xa;  1.0 = Entire grid cell burned&#xa;&#xa;Attributes:&#xa;  Conventions: 'CF-1.8'&#xa;  source: 'GFEDDownloader'&#xa;  data_source: 'GFED4.1s'&#xa;  spatial_coverage: '0.25° native, regridded to 0.5°'&#xa;  regridding_method: 'mean aggregation'" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="960" width="440" height="320" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge6a" edge="1" parent="1" source="standard-nc" target="output">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Raw File Cleanup -->
+        <mxCell id="cleanup" value="Cleanup (if --keep-raw not set)&#xa;cleanup_raw_files()&#xa;&#xa;Delete: raw/GFED4.1s_2020.hdf5&#xa;&#xa;Note: Yearly files are large (~100-200 MB)&#xa;Cleanup saves disk space but requires&#xa;re-download for other months in same year" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;align=left" vertex="1" parent="1">
+          <mxGeometry x="540" y="960" width="340" height="140" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge6b" edge="1" parent="1" source="output" target="cleanup">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Title -->
+        <mxCell id="title" value="GFED4.1s Burned Area (Fire Disturbance) Data Flow" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=16;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="250" y="0" width="650" height="30" as="geometry"/>
+        </mxCell>
+
+        <!-- Scientific Note -->
+        <mxCell id="note" value="Scientific Context:&#xa;Burned area represents fire-driven ecosystem disturbance.&#xa;Critical for CARDAMOM carbon cycle modeling as fire causes:&#xa;• Direct carbon emissions to atmosphere&#xa;• Mortality of vegetation biomass&#xa;• Altered ecosystem structure and function&#xa;&#xa;GFED4.1s provides global burned area at 0.25° resolution&#xa;from satellite observations (MODIS)." style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;align=left;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="920" y="420" width="400" height="180" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

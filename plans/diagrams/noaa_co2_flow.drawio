@@ -1,0 +1,103 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="NOAA CO2 Data Flow" id="noaa-co2">
+    <mxGraphModel dx="1434" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="1050">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- CLI Entry Point -->
+        <mxCell id="cli-entry" value="CLI Command (Option 1: Single Month)&#xa;python -m src.stac_cli noaa&#xa;--year 2020 --month 1&#xa;--output ./output&#xa;&#xa;CLI Command (Option 2: Full Dataset - Recommended)&#xa;python -m src.stac_cli noaa&#xa;--output ./output" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;align=left" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="380" height="130" as="geometry"/>
+        </mxCell>
+
+        <!-- HTTP Download -->
+        <mxCell id="http-download" value="HTTP Download from NOAA GML&#xa;URL: https://gml.noaa.gov/webdata/ccgg/trends/co2/co2_mm_gl.csv&#xa;&#xa;Method: requests.get()&#xa;Timeout: 30 seconds&#xa;&#xa;Data Source:&#xa;  Global Monitoring Laboratory (GML)&#xa;  Flask measurements from multiple observation sites&#xa;  High-precision CO2 measurements" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left" vertex="1" parent="1">
+          <mxGeometry x="40" y="210" width="420" height="160" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge1" edge="1" parent="1" source="cli-entry" target="http-download">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- CSV Parsing -->
+        <mxCell id="csv-parse" value="Parse NOAA CSV File&#xa;_download_co2_data()&#xa;&#xa;CSV Format:&#xa;  year, month, decimal_date, average_observed, std_dev, trend, trend_std&#xa;  Example: 2020,1,2020.042,411.72,0.15,410.23,0.10&#xa;&#xa;Processing:&#xa;  • Skip header lines starting with '#'&#xa;  • Extract: year, month, average_observed (CO2 ppm)&#xa;  • Build nested dict: {year: {month: co2_ppm}}&#xa;&#xa;Output: Dict[int, Dict[int, float]]&#xa;  Example: {2020: {1: 411.72, 2: 412.03, ...}, ...}" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left" vertex="1" parent="1">
+          <mxGeometry x="520" y="210" width="480" height="220" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge2" edge="1" parent="1" source="http-download" target="csv-parse">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Branch: Single Month vs Full Dataset -->
+        <mxCell id="branch" value="Processing Mode Selection" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="340" y="470" width="180" height="120" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge3" edge="1" parent="1" source="csv-parse" target="branch">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Single Month Processing -->
+        <mxCell id="single-month" value="Single Month Processing&#xa;_download_single_month()&#xa;&#xa;1. Extract CO2 for requested year/month&#xa;   co2_value_ppm = co2_data[year][month]&#xa;&#xa;2. Create spatially-replicated grid:&#xa;   co2_grid = np.full((360, 720), co2_value_ppm)&#xa;   Dimensions: [latitude=360, longitude=720]&#xa;   Value: Uniform CO2 concentration&#xa;&#xa;3. Create xarray Dataset:&#xa;   Dimensions: [time=1, latitude=360, longitude=720]&#xa;   Time: Single month (e.g., 2020-01-01)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left" vertex="1" parent="1">
+          <mxGeometry x="40" y="640" width="380" height="220" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge4a" edge="1" parent="1" source="branch" target="single-month">
+          <mxGeometry relative="1" as="geometry"/>
+          <mxLabel>
+            <mxCell style="text;html=1;align=center;verticalAlign=middle;" value="year &amp; month&#xa;provided" connectable="0" vertex="1" parent="edge4a">
+              <mxGeometry relative="1" as="geometry"/>
+            </mxCell>
+          </mxLabel>
+        </mxCell>
+
+        <!-- Full Dataset Processing -->
+        <mxCell id="full-dataset" value="Full Dataset Processing&#xa;_download_all_data()&#xa;&#xa;1. Extract all years and months from CSV&#xa;   all_years = sorted(co2_data.keys())&#xa;   start_year = min(all_years)  # e.g., 1979&#xa;   end_year = max(all_years)     # e.g., 2024&#xa;&#xa;2. Build 3D time series arrays:&#xa;   time_steps = [datetime(y, m, 1) for y, m in all months]&#xa;   co2_values = [co2_data[y][m] for y, m in all months]&#xa;&#xa;3. Create spatially-replicated 3D CO2 array:&#xa;   Dimensions: [time=N, latitude=360, longitude=720]&#xa;   Each time slice replicated with monthly CO2 value&#xa;   co2_grid_3d[t, :, :] = co2_values[t]&#xa;&#xa;4. Create xarray Dataset with complete time series" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left" vertex="1" parent="1">
+          <mxGeometry x="480" y="640" width="480" height="280" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge4b" edge="1" parent="1" source="branch" target="full-dataset">
+          <mxGeometry relative="1" as="geometry"/>
+          <mxLabel>
+            <mxCell style="text;html=1;align=center;verticalAlign=middle;" value="No year/month&#xa;(default)" connectable="0" vertex="1" parent="edge4b">
+              <mxGeometry relative="1" as="geometry"/>
+            </mxCell>
+          </mxLabel>
+        </mxCell>
+
+        <!-- Standard NetCDF Creation -->
+        <mxCell id="standard-nc" value="Create Standard CARDAMOM NetCDF&#xa;write_netcdf_file()&#xa;&#xa;Grid Specifications:&#xa;  Latitude: -89.75° to 89.75° (0.5° resolution) = 360 points&#xa;  Longitude: -179.75° to 179.75° (0.5° resolution) = 720 points&#xa;  Time: Either single month OR complete time series&#xa;&#xa;Conventions: CF-1.8&#xa;Encoding: float32, zlib compression level 4&#xa;Variable attributes:&#xa;  long_name: 'Atmospheric CO2 concentration'&#xa;  standard_name: 'mole_fraction_of_carbon_dioxide_in_air'&#xa;  description: 'Global monthly mean replicated spatially'" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left" vertex="1" parent="1">
+          <mxGeometry x="40" y="960" width="500" height="220" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge5a" edge="1" parent="1" source="single-month" target="standard-nc">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge5b" edge="1" parent="1" source="full-dataset" target="standard-nc">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Final Output -->
+        <mxCell id="output" value="Output NetCDF File&#xa;&#xa;Single Month Mode:&#xa;  File: output/data/co2_2020_01.nc&#xa;  Dimensions: time=1, latitude=360, longitude=720&#xa;  Variable: CO2 [ppm]&#xa;  Example value: 411.72 ppm (uniform across all pixels)&#xa;&#xa;Full Dataset Mode:&#xa;  File: output/data/co2_1979_2024.nc&#xa;  Dimensions: time=N (e.g., 546 months), latitude=360, longitude=720&#xa;  Variable: CO2 [ppm]&#xa;  Time range: 1979-01 to 2024-12&#xa;  CO2 range: ~335 ppm (1979) to ~420 ppm (2024)&#xa;&#xa;Common Attributes:&#xa;  Units: ppm (parts per million)&#xa;  Fill Value: -9999.0&#xa;  Conventions: 'CF-1.8'&#xa;  source: 'NOAADownloader'&#xa;  institution: 'NOAA GML'" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="600" y="960" width="500" height="320" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge6" edge="1" parent="1" source="standard-nc" target="output">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Title -->
+        <mxCell id="title" value="NOAA CO2 (Atmospheric Carbon Dioxide Concentration) Data Flow" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=16;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="250" y="0" width="700" height="30" as="geometry"/>
+        </mxCell>
+
+        <!-- Scientific Note -->
+        <mxCell id="note" value="Scientific Note: Atmospheric CO2 is spatially uniform globally,&#xa;so NOAA's global monthly mean values are replicated across all grid cells.&#xa;Downloading the entire time series is efficient (~100KB CSV file)." style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;align=left;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="1040" y="210" width="360" height="100" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,0 +1,84 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="ECMWF T2M_MIN Data Flow" id="ecmwf-t2m-min">
+    <mxGraphModel dx="1434" dy="844" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- CLI Entry Point -->
+        <mxCell id="cli-entry" value="CLI Command&#xa;python -m src.stac_cli ecmwf&#xa;--variables t2m_min&#xa;--year 2020 --month 1&#xa;--output ./output" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="280" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- Variable Resolution -->
+        <mxCell id="var-resolve" value="Variable Dependency Resolution&#xa;&#xa;Output var: t2m_min&#xa;→ Raw ERA5 var: 2m_temperature" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656" vertex="1" parent="1">
+          <mxGeometry x="40" y="160" width="280" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge1" edge="1" parent="1" source="cli-entry" target="var-resolve">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- CDS API Call -->
+        <mxCell id="cds-api" value="ECMWF CDS API Call&#xa;cdsapi.Client.retrieve()&#xa;&#xa;Dataset: 'reanalysis-era5-single-levels-monthly-means'&#xa;Parameters:&#xa;  product_type: 'monthly_averaged_reanalysis_by_hour_of_day'&#xa;  variable: '2m_temperature'&#xa;  year: '2020'&#xa;  month: '01'&#xa;  time: ['00:00', '01:00', ..., '23:00']  # All 24 hours&#xa;  format: 'netcdf'" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left" vertex="1" parent="1">
+          <mxGeometry x="40" y="280" width="400" height="160" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge2" edge="1" parent="1" source="var-resolve" target="cds-api">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Raw NetCDF -->
+        <mxCell id="raw-nc" value="Raw ERA5 NetCDF&#xa;File: raw/2m_temperature_2020_01.nc&#xa;&#xa;Dimensions:&#xa;  time: 24 (hourly)&#xa;  latitude: 721 (0.25° resolution)&#xa;  longitude: 1440 (0.25° resolution)&#xa;&#xa;Variable: 2m_temperature [K]" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left" vertex="1" parent="1">
+          <mxGeometry x="40" y="480" width="280" height="140" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge3" edge="1" parent="1" source="cds-api" target="raw-nc">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Processing Step -->
+        <mxCell id="process" value="Processing: Extract Monthly Minimum&#xa;_process_temperature_extrema()&#xa;&#xa;Operation:&#xa;  • Identify time dimension ('time' or 'valid_time')&#xa;  • Apply min() aggregation over time dimension&#xa;  • Result: Monthly minimum temperature [K]&#xa;&#xa;Input shape: [24, 721, 1440]&#xa;Output shape: [721, 1440]" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left" vertex="1" parent="1">
+          <mxGeometry x="400" y="480" width="380" height="160" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge4" edge="1" parent="1" source="raw-nc" target="process">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Standard NetCDF Creation -->
+        <mxCell id="standard-nc" value="Create Standard CARDAMOM NetCDF&#xa;create_standard_netcdf_dataset()&#xa;&#xa;Output Grid:&#xa;  Latitude: -89.75° to 89.75° (0.5° resolution) = 360 points&#xa;  Longitude: -179.75° to 179.75° (0.5° resolution) = 720 points&#xa;  Time: Single value (2020-01-01)&#xa;&#xa;Conventions: CF-1.8&#xa;Encoding: float32, zlib compression level 4" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left" vertex="1" parent="1">
+          <mxGeometry x="400" y="680" width="420" height="160" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge5" edge="1" parent="1" source="process" target="standard-nc">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Final Output -->
+        <mxCell id="output" value="Output NetCDF File&#xa;File: output/data/t2m_min_2020_01.nc&#xa;&#xa;Dimensions:&#xa;  time: 1&#xa;  latitude: 360&#xa;  longitude: 720&#xa;&#xa;Variable: MIN [K]&#xa;Units: K (Kelvin)&#xa;Fill Value: -9999.0&#xa;&#xa;Attributes:&#xa;  Conventions: 'CF-1.8'&#xa;  source: 'ECMWFDownloader'&#xa;  history: 'Created by CARDAMOM preprocessor'" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="680" width="320" height="220" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge6" edge="1" parent="1" source="standard-nc" target="output">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Raw File Cleanup -->
+        <mxCell id="cleanup" value="Cleanup (if --keep-raw not set)&#xa;Delete: raw/2m_temperature_2020_01.nc" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333" vertex="1" parent="1">
+          <mxGeometry x="400" y="880" width="280" height="60" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge7" edge="1" parent="1" source="output" target="cleanup">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Title -->
+        <mxCell id="title" value="ECMWF T2M_MIN (Monthly Minimum Temperature) Data Flow" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=16;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="200" y="0" width="600" height="30" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

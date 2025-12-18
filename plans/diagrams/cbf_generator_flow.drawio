@@ -1,0 +1,82 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.0.3 Chrome/140.0.7339.249 Electron/38.7.0 Safari/537.36" version="29.0.3">
+  <diagram name="CBF Generator Data Flow" id="cbf-generator">
+    <mxGraphModel dx="2066" dy="1219" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1600" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="cli-entry" value="CLI Command&#xa;python -m src.stac_cli cbf-generate&#xa;--stac-api https://stac.maap-project.org&#xa;--start 2020-01 --end 2020-12&#xa;--region conus&#xa;--output ./cbf_output" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;align=left" parent="1" vertex="1">
+          <mxGeometry x="40" y="40" width="400" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="init" value="Initialize CBF Generator&#xa;CBFGenerator(stac_api_url, output_directory)&#xa;&#xa;Connect to STAC API endpoint&#xa;Setup output directory structure" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656" parent="1" vertex="1">
+          <mxGeometry x="40" y="200" width="340" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="edge1" parent="1" source="cli-entry" target="init" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="parse-dates" value="Parse Date Range&#xa;_parse_month_range()&#xa;&#xa;Input: 2020-01 to 2020-12&#xa;Output: [2020-01, 2020-02, ..., 2020-12]&#xa;Total: 12 months" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left" parent="1" vertex="1">
+          <mxGeometry x="440" y="200" width="360" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="edge2" parent="1" source="init" target="parse-dates" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="stac-discover" value="Discover Available STAC Data&#xa;discover_available_data()&#xa;&#xa;Query STAC API using pystac_client.Client&#xa;For each required variable:&#xa;  T2M_MIN -&gt; cardamom-t2m-min&#xa;  T2M_MAX -&gt; cardamom-t2m-max&#xa;  VPD -&gt; cardamom-vpd&#xa;  TOTAL_PREC -&gt; cardamom-total-prec&#xa;  SSRD -&gt; cardamom-ssrd&#xa;  STRD -&gt; cardamom-strd&#xa;  SKT -&gt; cardamom-skt&#xa;  SNOWFALL -&gt; cardamom-snowfall&#xa;  CO2 -&gt; cardamom-co2&#xa;  BURNED_AREA -&gt; cardamom-burned-area&#xa;&#xa;Search Parameters:&#xa;  datetime: 2020-01-01T00:00:00Z / 2020-12-28T23:59:59Z&#xa;&#xa;Returns: Dict[variable_name, List of STAC Items]" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left" parent="1" vertex="1">
+          <mxGeometry x="40" y="340" width="540" height="320" as="geometry" />
+        </mxCell>
+        <mxCell id="edge3" parent="1" source="parse-dates" target="stac-discover" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="validate" value="Validate Data Availability&#xa;validate_data_availability()&#xa;&#xa;Check each variable for all required months:&#xa;  Critical Variables (MUST exist):&#xa;    CO2&#xa;    BURNED_AREA&#xa;  &#xa;  Optional Variables (warnings if missing):&#xa;    All meteorological variables&#xa;&#xa;Validation Logic:&#xa;  For each variable:&#xa;    available_months = extract dates from items&#xa;    missing_months = required - available&#xa;    &#xa;    if missing and variable is critical:&#xa;      Raise ValueError (cannot proceed)&#xa;    elif missing:&#xa;      Log warning (can proceed)&#xa;&#xa;Returns:&#xa;  is_valid: bool&#xa;  missing_critical: Dict of vars with missing months&#xa;  missing_optional: Dict of vars with missing months&#xa;  available_for_cbf: Dict of vars with items" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left" parent="1" vertex="1">
+          <mxGeometry x="640" y="340" width="480" height="380" as="geometry" />
+        </mxCell>
+        <mxCell id="edge4" parent="1" source="stac-discover" target="validate" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="load-data" value="Load Variable Data from STAC Items&#xa;load_variable_data()&#xa;&#xa;For each variable and its STAC items:&#xa;  1. Get data asset URL from item.get_asset(data)&#xa;  2. Load NetCDF file: xr.open_dataset(asset.href)&#xa;  3. Collect all monthly datasets&#xa;  4. Concatenate along time dimension: xr.concat()&#xa;&#xa;Example for T2M_MIN:&#xa;  Input Items:&#xa;    t2m_min_2020_01.nc with shape [1, 360, 720]&#xa;    t2m_min_2020_02.nc with shape [1, 360, 720]&#xa;    ...&#xa;    t2m_min_2020_12.nc with shape [1, 360, 720]&#xa;  &#xa;  Output Dataset:&#xa;    Dimensions: [time=12, latitude=360, longitude=720]&#xa;    Variable: MIN in Kelvin&#xa;&#xa;Repeat for all 10 variables&#xa;&#xa;Returns: Dict mapping variable_name to xr.Dataset" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left" parent="1" vertex="1">
+          <mxGeometry x="40" y="760" width="580" height="340" as="geometry" />
+        </mxCell>
+        <mxCell id="edge5" parent="1" source="validate" target="load-data" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="assemble" value="Assemble Unified Meteorology Dataset&#xa;assemble_cbf_meteorology_dataset()&#xa;&#xa;Combine all variables into single xarray.Dataset:&#xa;&#xa;Input: Dict of individual variable datasets&#xa;  T2M_MIN: Dataset([time, lat, lon])&#xa;  T2M_MAX: Dataset([time, lat, lon])&#xa;  VPD: Dataset([time, lat, lon])&#xa;  ... (10 variables total)&#xa;&#xa;Operations:&#xa;  1. Verify coordinate alignment (all same lat/lon/time)&#xa;  2. Extract data arrays from each dataset&#xa;  3. Merge into single Dataset with all variables&#xa;  4. Copy coordinate metadata (units, standard_name)&#xa;&#xa;Output Dataset:&#xa;  Dimensions: [time=12, latitude=360, longitude=720]&#xa;  Variables: [T2M_MIN, T2M_MAX, VPD, TOTAL_PREC, SSRD,&#xa;              STRD, SKT, SNOWFALL, CO2, BURNED_AREA]&#xa;  &#xa;  Each variable shape: [12, 360, 720]" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left" parent="1" vertex="1">
+          <mxGeometry x="680" y="760" width="500" height="320" as="geometry" />
+        </mxCell>
+        <mxCell id="edge6" parent="1" source="load-data" target="assemble" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="region" value="Define Spatial Region&#xa;generate_cbf_files()&#xa;&#xa;Region Selection:&#xa;  conus:&#xa;    lat_range: (20N, 60N)&#xa;    lon_range: (-130W, -50W)&#xa;  &#xa;  global:&#xa;    lat_range: (-89.75, 89.75)&#xa;    lon_range: (-179.75, 179.75)&#xa;&#xa;Compute pixel indices:&#xa;  lat_mask = (lats &gt;= lat_min) and (lats &lt;= lat_max)&#xa;  lon_mask = (lons &gt;= lon_min) and (lons &lt;= lon_max)&#xa;  &#xa;  lat_indices = np.where(lat_mask)[0]&#xa;  lon_indices = np.where(lon_mask)[0]&#xa;&#xa;CONUS Example:&#xa;  lat_indices: ~80 pixels (20 to 60 at 0.5)&#xa;  lon_indices: ~160 pixels (-130 to -50 at 0.5)&#xa;  Total pixels: ~12,800" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left" parent="1" vertex="1">
+          <mxGeometry x="40" y="1140" width="480" height="320" as="geometry" />
+        </mxCell>
+        <mxCell id="edge7" parent="1" source="assemble" target="region" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pixel-cbf" value="Generate Pixel-Specific CBF Files&#xa;_generate_pixel_cbf()&#xa;&#xa;For each pixel (lat_idx, lon_idx) in region:&#xa;&#xa;  1. Extract pixel coordinates:&#xa;     lat_value = lats[lat_idx]&#xa;     lon_value = lons[lon_idx]&#xa;&#xa;  2. Extract time series for this pixel:&#xa;     For each variable:&#xa;       pixel_data = met_dataset[var].isel(&#xa;         latitude=lat_idx, longitude=lon_idx&#xa;       )&#xa;       Result: [time=12] array&#xa;&#xa;  3. Assemble CBF structure:&#xa;     Forcing variables (meteorology)&#xa;     Observational constraints (TODO)&#xa;     Single-value constraints (soil properties)&#xa;     MCMC parameters&#xa;&#xa;  4. Generate filename:&#xa;     Format: site{lat}_{dec}N{lon}_{dec}W_ID001exp0.cbf.nc&#xa;     Example: site35_25N105_75W_ID001exp0.cbf.nc&#xa;&#xa;  5. Write CARDAMOM-format NetCDF:&#xa;     CF-1.8 conventions&#xa;     Time encoding: days since 2001-01-01&#xa;     Fill value: -9999.0&#xa;     Compression: zlib level 4&#xa;&#xa;Loop through all pixels (may take time for large regions)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left" parent="1" vertex="1">
+          <mxGeometry x="580" y="1140" width="600" height="420" as="geometry" />
+        </mxCell>
+        <mxCell id="edge8" parent="1" source="region" target="pixel-cbf" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="output" value="Output CBF Files&#xa;&#xa;Directory: ./cbf_output/&#xa;&#xa;Files (one per pixel):&#xa;  site35_25N105_75W_ID001exp0.cbf.nc&#xa;  site35_75N105_25W_ID001exp0.cbf.nc&#xa;  ...&#xa;  (Total: ~12,800 files for CONUS)&#xa;&#xa;Each CBF File Structure:&#xa;  Dimensions:&#xa;    time: 12 (monthly for 2020)&#xa;    latitude: scalar&#xa;    longitude: scalar&#xa;  &#xa;  Forcing Variables (time series):&#xa;    T2M_MIN [K], T2M_MAX [K], VPD [hPa]&#xa;    TOTAL_PREC [mm], SSRD [W/m2], STRD [W/m2]&#xa;    SKT [K], SNOWFALL [mm], CO2 [ppm]&#xa;    BURNED_AREA [fraction]&#xa;  &#xa;  Observational Constraints (TODO):&#xa;    LAI, GPP, ABGB, EWT (from separate datasets)&#xa;  &#xa;  Single-Value Constraints:&#xa;    PEQ_iniSOM [gC/m2], PEQ_CUE [unitless]&#xa;    Mean_LAI [m2/m2], Mean_FIR [gC/m2/day]&#xa;  &#xa;  MCMC Parameters:&#xa;    MCMCID attributes (nITERATIONS, nSAMPLES)&#xa;  &#xa;  Metadata:&#xa;    LAT: 35.25&#xa;    LON: -105.75&#xa;    Conventions: CF-1.8&#xa;    source: CBFGenerator" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="40" y="1600" width="600" height="480" as="geometry" />
+        </mxCell>
+        <mxCell id="edge9" parent="1" source="pixel-cbf" target="output" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="results" value="Return Results&#xa;&#xa;cbf_files: List of all generated CBF file paths&#xa;success: True&#xa;metadata:&#xa;  date_range: 2020-01 to 2020-12&#xa;  region: conus&#xa;  num_files: 12800&#xa;  generation_time: 2025-12-17T10:30:00" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;align=left" parent="1" vertex="1">
+          <mxGeometry x="700" y="1600" width="480" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="edge10" parent="1" source="output" target="results" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="title" value="CBF Generator (CARDAMOM Binary Format) Data Flow" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="300" width="700" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="note" value="NOTE: Current Implementation Status&#xa;&#xa;The CBF generator currently implements:&#xa;Checkmark STAC data discovery and validation&#xa;Checkmark Meteorological data loading and assembly&#xa;Checkmark Region definition and pixel iteration&#xa;Checkmark Filename generation&#xa;&#xa;TODO (requires additional datasets):&#xa;Observational constraints (LAI, GPP, biomass, EWT)&#xa;Single-value constraints (soil properties, fire emissions)&#xa;MCMC parameter configuration&#xa;Complete erens_cbf_code.py integration&#xa;&#xa;The _generate_pixel_cbf() method is currently a placeholder&#xa;that would be populated with full logic from erens_cbf_code.py" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#333333;align=left;fontStyle=2" parent="1" vertex="1">
+          <mxGeometry x="1240" y="340" width="480" height="300" as="geometry" />
+        </mxCell>
+        <mxCell id="science" value="Scientific Context&#xa;&#xa;CBF files are the primary input format for CARDAMOM&#xa;carbon cycle data assimilation system:&#xa;&#xa;Forcing Data: Drives ecosystem process models (DALEC)&#xa;Constraints: Observations used to calibrate model parameters&#xa;MCMC Config: Controls Bayesian parameter estimation&#xa;&#xa;Each CBF file represents a single location (pixel) with:&#xa;Time series of meteorological drivers (12 months)&#xa;Observational constraints with uncertainties&#xa;Site-specific properties (soil, vegetation)&#xa;&#xa;CARDAMOM uses these files to estimate ecosystem carbon&#xa;stocks and fluxes through probabilistic inversion" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;align=left;fontStyle=2" parent="1" vertex="1">
+          <mxGeometry x="1240" y="680" width="480" height="320" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

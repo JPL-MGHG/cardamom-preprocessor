@@ -1,0 +1,75 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="ECMWF SNOWFALL Data Flow" id="ecmwf-snowfall">
+    <mxGraphModel dx="1434" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="950">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- CLI Entry Point -->
+        <mxCell id="cli-entry" value="CLI Command&#xa;python -m src.stac_cli ecmwf&#xa;--variables snowfall&#xa;--year 2020 --month 1&#xa;--output ./output" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="280" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- Variable Resolution -->
+        <mxCell id="var-resolve" value="Variable Dependency Resolution&#xa;&#xa;Output var: snowfall&#xa;→ Raw ERA5 var: snowfall" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656" vertex="1" parent="1">
+          <mxGeometry x="40" y="160" width="280" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge1" edge="1" parent="1" source="cli-entry" target="var-resolve">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- CDS API Call -->
+        <mxCell id="cds-api" value="ECMWF CDS API Call&#xa;cdsapi.Client.retrieve()&#xa;&#xa;Dataset: 'reanalysis-era5-single-levels-monthly-means'&#xa;Parameters:&#xa;  product_type: 'monthly_averaged_reanalysis'&#xa;  variable: 'snowfall'&#xa;  year: '2020'&#xa;  month: '01'&#xa;  time: '00:00'  # Single time for monthly mean&#xa;  format: 'netcdf'" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left" vertex="1" parent="1">
+          <mxGeometry x="40" y="280" width="400" height="150" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge2" edge="1" parent="1" source="var-resolve" target="cds-api">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Raw NetCDF -->
+        <mxCell id="raw-nc" value="Raw ERA5 NetCDF&#xa;File: raw/snowfall_2020_01.nc&#xa;&#xa;Dimensions:&#xa;  time: 1 (monthly mean)&#xa;  latitude: 721 (0.25° resolution)&#xa;  longitude: 1440 (0.25° resolution)&#xa;&#xa;Variable: snowfall [m]&#xa;(Water equivalent depth)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left" vertex="1" parent="1">
+          <mxGeometry x="40" y="470" width="300" height="150" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge3" edge="1" parent="1" source="cds-api" target="raw-nc">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Processing Step -->
+        <mxCell id="process" value="Processing: Convert Snowfall&#xa;_process_snowfall()&#xa;&#xa;Operations:&#xa;  1. Sum over time dimension (if multiple time steps):&#xa;     snow_monthly_m = sum(data, dim=time)&#xa;  2. Convert meters to millimeters:&#xa;     snow_mm = snow_monthly_m * 1000&#xa;&#xa;Scientific Context:&#xa;  Snowfall in water equivalent depth (melted snow height)&#xa;  Useful for ecosystem water balance calculations&#xa;&#xa;Input shape: [1, 721, 1440]&#xa;Output shape: [721, 1440]&#xa;Output units: mm/month (water equivalent)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left" vertex="1" parent="1">
+          <mxGeometry x="400" y="470" width="420" height="210" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge4" edge="1" parent="1" source="raw-nc" target="process">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Standard NetCDF Creation -->
+        <mxCell id="standard-nc" value="Create Standard CARDAMOM NetCDF&#xa;create_standard_netcdf_dataset()&#xa;&#xa;Output Grid:&#xa;  Latitude: -89.75° to 89.75° (0.5° resolution) = 360 points&#xa;  Longitude: -179.75° to 179.75° (0.5° resolution) = 720 points&#xa;  Time: Single value (2020-01-01)&#xa;&#xa;Conventions: CF-1.8&#xa;Encoding: float32, zlib compression level 4" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left" vertex="1" parent="1">
+          <mxGeometry x="400" y="720" width="420" height="160" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge5" edge="1" parent="1" source="process" target="standard-nc">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Final Output -->
+        <mxCell id="output" value="Output NetCDF File&#xa;File: output/data/snowfall_2020_01.nc&#xa;&#xa;Dimensions:&#xa;  time: 1&#xa;  latitude: 360&#xa;  longitude: 720&#xa;&#xa;Variable: SNOWFALL [mm]&#xa;Units: mm (millimeters per month, water equivalent)&#xa;Fill Value: -9999.0&#xa;&#xa;Attributes:&#xa;  Conventions: 'CF-1.8'&#xa;  source: 'ECMWFDownloader'&#xa;  history: 'Created by CARDAMOM preprocessor'" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="720" width="320" height="240" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge6" edge="1" parent="1" source="standard-nc" target="output">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Title -->
+        <mxCell id="title" value="ECMWF SNOWFALL Data Flow" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=16;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="300" y="0" width="500" height="30" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
