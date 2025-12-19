@@ -27,9 +27,7 @@ Workflow:
 """
 
 import os
-import sys
 import logging
-from pathlib import Path
 import numpy as np
 import xarray as xr
 
@@ -38,22 +36,6 @@ from stac_met_loader import load_met_data_from_stac
 
 # Import obs data handler
 from cbf_obs_handler import load_observational_data_with_nan_fill
-
-# Import helper functions from erens_cbf_code
-sys.path.insert(0, str(Path(__file__).parent.parent / "matlab-migration"))
-from erens_cbf_code import (
-    load_and_preprocess_land_fraction,
-    find_land_pixels,
-    generate_output_filepaths,
-    load_scaffold_data,
-    get_pixel_data,
-    set_forcing_variables,
-    set_observation_constraints,
-    set_single_value_constraints,
-    adjust_assimilation_attributes,
-    set_mcmc_attributes,
-    finalize_and_save,
-)
 
 # Configure logging
 logging.basicConfig(
@@ -120,6 +102,319 @@ OBS_ATTR_COPY_VARS = ['ABGB', 'GPP', 'SCF']
 # MCMC Settings
 MCMC_ITERATIONS = 500000.0
 MCMC_SAMPLES = 20.0
+
+
+# --- Helper Functions (formerly from matlab-migration/erens_cbf_code.py) ---
+
+
+def load_and_preprocess_land_fraction(filepath):
+    """Loads and transposes the land fraction dataset."""
+    try:
+        ds = xr.load_dataset(filepath).transpose()
+        logger.info(f"Successfully loaded land fraction data from: {filepath}")
+        return ds
+    except FileNotFoundError:
+        logger.error(f"Error: Land fraction file not found at {filepath}")
+        return None
+    except Exception as e:
+        logger.error(f"Error loading land fraction data: {e}")
+        return None
+
+
+def find_land_pixels(land_frac_ds, lat_range, lon_range, threshold):
+    """Identifies land pixels above a threshold within lat/lon ranges."""
+    latlon_coords = []
+    latlon_indices = []
+    if land_frac_ds is None:
+        return latlon_coords, latlon_indices
+
+    # Ensure dataset is transposed correctly if needed (assuming lat, lon dimensions)
+    # The original code transposes, so we assume it's needed. Check dimension names if issues arise.
+    land_frac_data = land_frac_ds['data']  # Adjust 'data' if variable name differs
+
+    for i in lat_range:
+        for j in lon_range:
+            # Use .sel for label-based indexing if coordinates are monotonic and regularly spaced
+            # Using .isel requires knowing the integer indices corresponding to the range
+            # The original code uses integer indices directly, so we replicate that.
+            # Ensure the indices i, j are valid for the dataset dimensions.
+            try:
+                pixel_value = land_frac_data.isel(latitude=i, longitude=j).item()  # Use .item() to get scalar value
+                if pixel_value > threshold:
+                    lat = land_frac_ds.latitude[i].item()
+                    lon = land_frac_ds.longitude[j].item()
+                    latlon_coords.append([lat, lon])
+                    latlon_indices.append(
+                        [i, j])  # Store original indices if needed later, though not used in current script
+            except IndexError:
+                # Handle cases where i or j might be out of bounds for the loaded data
+                continue
+            except Exception as e:
+                logger.warning(f"Warning: Error accessing land fraction data at index ({i}, {j}): {e}")
+                continue
+
+    logger.info(f"Found {len(latlon_coords)} land pixels meeting criteria.")
+    return latlon_coords, latlon_indices
+
+
+def generate_output_filepaths(latlon_coords, output_dir_template, exp_id):
+    """Generates output filenames and paths based on lat/lon coordinates."""
+    filepaths = []
+    output_dir = output_dir_template.format(exp_id=exp_id)
+    os.makedirs(output_dir, exist_ok=True)  # Ensure output directory exists
+
+    for lat, lon in latlon_coords:
+        # Format latitude and longitude strings carefully as per original logic
+        # Example: lat=35.25, lon=-105.75
+        lat_str_deg = str(lat).split('.')[0]  # '35'
+        lat_str_dec = str(lat).split('.')[1][:2].ljust(2, '0')  # '25'
+        # Longitude needs careful handling for negative sign and formatting
+        lon_abs = abs(lon)  # 105.75
+        lon_str_deg = str(lon_abs).split('.')[0]  # '105'
+        lon_str_dec = str(lon_abs).split('.')[1][:2].ljust(2, '0')  # '75'
+
+        # Ensure degree parts have leading zeros if needed (original didn't seem to, but good practice)
+        # lat_str_deg = lat_str_deg.zfill(2) # e.g., '05' if lat was 5.25
+        # lon_str_deg = lon_str_deg.zfill(3) # e.g., '095' if lon was -95.75
+
+        # Original format: site{lat_deg}_{lat_dec}N{lon_deg}_{lon_dec}W_ID{exp_id}exp0.cbf.nc
+        # Example based on original: site35_25N105_75W_ID1100exp0.cbf.nc
+        # Note: Original code used slicing like str(latlon[i][1])[1:-3] which seems complex and potentially fragile.
+        # Let's try to replicate the *intent* based on the example filename structure.
+        # Assuming West longitude (negative) and North latitude (positive).
+        filename = f"site{lat_str_deg}_{lat_str_dec}N{lon_str_deg}_{lon_str_dec}W_ID{exp_id}exp0.cbf.nc"
+        filepath = os.path.join(output_dir, filename)
+        filepaths.append(filepath)
+
+    return filepaths
+
+
+def load_scaffold_data(filepath):
+    """Loads the scaffold dataset."""
+    try:
+        ds = xr.load_dataset(filepath)
+        logger.info(f"Successfully loaded scaffold data from: {filepath}")
+        return ds
+    except FileNotFoundError:
+        logger.error(f"Error: Scaffold file not found at {filepath}")
+        return None
+    except Exception as e:
+        logger.error(f"Error loading scaffold data: {e}")
+        return None
+
+
+def get_pixel_data(dataset, lat, lon, var_name):
+    """Extracts data for a specific variable at a given lat/lon."""
+    # Using .sel method assumes coordinates are indexed.
+    # If coordinates are not precisely aligned, 'nearest' method might be needed.
+    # The original code used np.where, implying exact matches were expected or handled.
+    # Replicating np.where logic for robustness if .sel fails:
+    try:
+        lat_idx = np.where(dataset.latitude == lat)[0][0]
+        lon_idx = np.where(dataset.longitude == lon)[0][0]
+        return dataset[var_name].isel(latitude=lat_idx, longitude=lon_idx).squeeze()
+    except IndexError:
+        # Fallback to .sel with nearest neighbor if exact match fails or coords differ slightly
+        try:
+            logger.warning(f"Warning: Exact coordinate match failed for {var_name} at ({lat}, {lon}). Trying nearest neighbor.")
+            return dataset[var_name].sel(latitude=lat, longitude=lon, method="nearest").squeeze()
+        except Exception as e:
+            logger.error(f"Error extracting data for {var_name} at ({lat}, {lon}): {e}")
+            return None
+    except Exception as e:
+        logger.error(f"Error extracting data for {var_name} at ({lat}, {lon}): {e}")
+        return None
+
+
+def set_forcing_variables(target_ds, source_met_ds, lat, lon, scaffold_ds, positive_vars):
+    """Sets forcing variables in the target dataset using source met data."""
+    # Identify forcing variables present in the scaffold (excluding time, lat, lon etc.)
+    # Original code used list(Main_scaffold.data_vars)[1:11]] - this is fragile.
+    # Let's assume forcing vars are those present in MET_VARS_TO_KEEP that are also in scaffold_ds
+    forcing_vars_in_scaffold = [v for v in MET_VARS_TO_KEEP if v in scaffold_ds.data_vars]
+
+    time_coord = target_ds.time  # Get time coordinate from target
+
+    for var_name in forcing_vars_in_scaffold:
+        pixel_data = get_pixel_data(source_met_ds, lat, lon, var_name)
+        if pixel_data is not None:
+            # Ensure data aligns with target time dimension if necessary
+            # Assuming source data time implicitly matches scaffold time structure
+            target_ds[var_name] = xr.DataArray(
+                data=pixel_data.data,
+                coords={'time': time_coord},
+                dims=['time'],
+                attrs=scaffold_ds[var_name].attrs  # Copy attributes
+            )
+            # Ensure positivity constraints
+            if var_name in positive_vars:
+                target_ds[var_name] = target_ds[var_name].where(target_ds[var_name] > 0, other=0)
+        else:
+            logger.warning(f"Warning: Could not retrieve data for forcing variable {var_name}. Skipping.")
+
+    # Set missing but required forcing variables to zero
+    num_time_steps = len(time_coord)
+    if 'DISTURBANCE_FLUX' not in target_ds:
+        target_ds['DISTURBANCE_FLUX'] = xr.DataArray(data=np.zeros(num_time_steps), coords={'time': time_coord},
+                                                     dims=['time'])
+    if 'YIELD' not in target_ds:
+        target_ds['YIELD'] = xr.DataArray(data=np.zeros(num_time_steps), coords={'time': time_coord}, dims=['time'])
+
+
+def set_observation_constraints(target_ds, source_obs_ds, lat, lon, scaffold_ds, constraint_vars, attr_copy_vars):
+    """Sets observational constraints in the target dataset."""
+    time_coord = target_ds.time
+
+    for var_name in constraint_vars:
+        if var_name in source_obs_ds:
+            pixel_data = get_pixel_data(source_obs_ds, lat, lon, var_name)
+            if pixel_data is not None:
+                target_ds[var_name] = xr.DataArray(
+                    data=pixel_data.data,
+                    coords={'time': time_coord},
+                    dims=['time']
+                )
+                # Copy attributes if specified
+                if var_name in attr_copy_vars and var_name in scaffold_ds:
+                    target_ds[var_name].attrs = scaffold_ds[var_name].attrs
+            else:
+                logger.warning(f"Warning: Could not retrieve data for observation constraint {var_name}. Skipping.")
+        else:
+            logger.warning(f"Warning: Observation constraint variable {var_name} not found in source data.")
+
+
+def set_single_value_constraints(target_ds, source_obs_ds, lat, lon, scaffold_ds):
+    """Sets single-value constraints like initial SOM, CUE, Mean LAI, Mean FIR."""
+    # PEQ_iniSOM
+    som_data = get_pixel_data(source_obs_ds, lat, lon, 'SOM')
+    if som_data is not None:
+        target_ds['PEQ_iniSOM'] = xr.DataArray(
+            data=som_data.item(),  # Should be scalar
+            coords={'latitude': lat, 'longitude': lon},  # Use actual lat/lon
+            dims=[],  # Scalar has no dims
+            attrs=scaffold_ds['PEQ_iniSOM'].attrs  # Copy scaffold attrs first
+        )
+        # Update specific attributes
+        target_ds['PEQ_iniSOM'].attrs['units'] = 'gC/m2'
+        target_ds['PEQ_iniSOM'].attrs['source'] = 'HWSD'
+    else:
+        logger.warning("Warning: Could not retrieve SOM data.")
+
+    # PEQ_CUE (Carbon Use Efficiency) - Fixed value
+    target_ds['PEQ_CUE'] = 0.5
+    target_ds['PEQ_CUE'].attrs = {
+        'opt_unc_type': 0.0,
+        'unc': 0.25,
+        'description': 'Carbon use efficiency constraint'
+        # Add units if applicable/known
+    }
+
+    # Mean_LAI
+    lai_data = get_pixel_data(source_obs_ds, lat, lon, 'LAI')
+    if lai_data is not None:
+        mean_lai_value = lai_data.mean(dim='time', skipna=True).item()  # Calculate mean over time
+        target_ds['Mean_LAI'] = xr.DataArray(data=mean_lai_value, coords={'latitude': lat, 'longitude': lon}, dims=[])
+        # Attributes set later in adjust_assimilation_attributes
+    else:
+        logger.warning("Warning: Could not retrieve LAI data.")
+
+    # Mean_FIR
+    fir_data = get_pixel_data(source_obs_ds, lat, lon, 'Mean_FIR')
+    if fir_data is not None:
+        target_ds['Mean_FIR'] = xr.DataArray(
+            data=fir_data.item(),  # Should be scalar
+            coords={'latitude': lat, 'longitude': lon},
+            dims=[]
+        )
+        # Attributes set later in adjust_assimilation_attributes
+    else:
+        logger.warning("Warning: Could not retrieve Mean_FIR data.")
+
+
+def adjust_assimilation_attributes(target_ds):
+    """Adjusts attributes related to data assimilation methods."""
+    # Fire flux assimilation (Mean_FIR)
+    if 'Mean_FIR' in target_ds:
+        target_ds.Mean_FIR.attrs.update({
+            'unc': 0.1,
+            'opt_unc_type': 2.0,
+            'min_threshold': 0.01,
+            # 'units': 'gC/m2/day', # Original had this, but FIR is often unitless ratio? Verify.
+            'source': 'GFED4 mean CO2 fire emissions'  # Original had this on Mean_LAI attrs? Correcting placement.
+        })
+
+    # LAI assimilation (Mean_LAI)
+    if 'Mean_LAI' in target_ds:
+        target_ds.Mean_LAI.attrs.update({
+            'unc': 1.2,
+            'opt_unc_type': 1.0,
+            'min_threshold': 0.2,
+            'units': 'm2/m2',
+            'source': 'MODIS LAI'
+        })
+
+    # Biomass assimilation (ABGB) - Note: Renamed to ABGB_val later
+    if 'ABGB' in target_ds:
+        target_ds.ABGB.attrs.update({
+            'opt_filter': 3.0,
+            'opt_unc_type': 1.0,
+            'single_annual_unc': 1.1,
+            'min_threshold': 10.0,
+            'units': 'gC/m2',
+            'source': 'Xu et al 2021'
+        })
+
+    # Photosynthesis assimilation (GPP)
+    if 'GPP' in target_ds:
+        target_ds.GPP.attrs.update({
+            'single_unc': 1.30,
+            'opt_unc_type': 1.0,
+            'min_threshold': 1.0,
+            'units': 'gC/m2/day',
+            'source': 'FluxSat, Joiner et al 2019'
+        })
+
+    # Water storage assimilation (EWT)
+    if 'EWT' in target_ds:
+        target_ds.EWT.attrs.update({
+            'opt_normalization': 1.0,
+            'opt_filter': 0.0,
+            'single_unc': 200.0,
+            'units': 'mm',
+            'source': 'GRACE'
+        })
+
+
+def set_mcmc_attributes(target_ds, iterations, samples):
+    """Sets MCMC specific attributes."""
+    if 'MCMCID' in target_ds:
+        target_ds['MCMCID'].attrs['nITERATIONS'] = iterations
+        target_ds['MCMCID'].attrs['nSAMPLES'] = samples
+    else:
+        logger.warning("Warning: MCMCID variable not found in target dataset. Cannot set MCMC attributes.")
+
+
+def finalize_and_save(dataset, output_filepath):
+    """Finalizes dataset (renaming, encoding) and saves to NetCDF."""
+    final_ds = dataset.copy()
+
+    # Rename ABGB to ABGB_val as per original script
+    if 'ABGB' in final_ds:
+        final_ds = final_ds.rename({'ABGB': 'ABGB_val'})
+        logger.info(f"Renamed 'ABGB' to 'ABGB_val'.")
+
+    # Set encoding for CARDAMOM compatibility
+    if 'time' in final_ds.coords:
+        final_ds['time'].encoding['units'] = 'days since 2001-01-01'
+
+    encoding_settings = {'_FillValue': -9999.0, 'dtype': 'float32'}
+    var_encoding = {var: encoding_settings for var in final_ds.data_vars}
+
+    try:
+        final_ds.to_netcdf(output_filepath, encoding=var_encoding)
+        logger.info(f"Successfully saved CBF file to: {output_filepath}")
+    except Exception as e:
+        logger.error(f"Error saving NetCDF file {output_filepath}: {e}")
 
 
 def generate_cbf_files(
