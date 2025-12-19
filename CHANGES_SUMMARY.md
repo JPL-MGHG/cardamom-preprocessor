@@ -1,160 +1,92 @@
-# STAC Loader Update: Local and Remote Catalog Support
+# Plans Directory Cleanup Summary
 
-## Summary of Changes
+## Date: 2024-12-19
 
-Updated the STAC meteorology loader to accept both local STAC catalog.json files and remote STAC API URLs, and refactored the CBF generation architecture.
+## Overview
+Removed 26 obsolete planning documents that were superseded by the STAC-based implementation architecture.
 
-## Modified Files
+## Files Removed (26 total)
 
-### 1. `src/stac_met_loader.py`
-**Changes:**
-- Added `pystac` and `Path` imports for local catalog support
-- Renamed parameter `stac_api_url` → `stac_source` in:
-  - `discover_stac_items()`
-  - `load_met_data_from_stac()`
-- Added helper functions:
-  - `_is_local_catalog()`: Determines if source is local file or remote URL
-  - `_item_in_date_range()`: Filters STAC items by date range for local catalogs
-- Updated `discover_stac_items()` to handle both:
-  - **Local catalogs**: Uses `pystac.Catalog.from_file()` and manual filtering
-  - **Remote APIs**: Uses `pystac_client.Client.open()` with search API
+### Old Lifecycle Diagrams (10 files)
+Superseded by current diagrams in [plans/diagrams/](plans/diagrams/) (dated Dec 2024):
+- `2m_temp_lifecycle.xml.drawio`
+- `burned-area-lifecycle.xml.drawio`
+- `co2-lifecycle.xml.drawio`
+- `input-output-cbf.drawio.xml`
+- `prec-lifecycle.xml.drawio`
+- `skt_variable_lifecycle.xml.drawio`
+- `snow-lifecycle.xml.drawio`
+- `ssrd-strd-lifecycle.xml.drawio`
+- `variable-lifecycle-diagram.drawio`
+- `vpd_lifecycle.xml.drawio`
 
-**Usage Examples:**
-```python
-# Local STAC catalog
-met_data = load_met_data_from_stac(
-    stac_source='file:///path/to/catalog.json',  # or just '/path/to/catalog.json'
-    start_date='2020-01',
-    end_date='2020-12'
-)
+### MATLAB Migration Phase Plans (8 files)
+Original MATLAB migration approach superseded by STAC implementation:
+- `phase1_core_framework.md` (815 lines)
+- `phase2_downloaders.md` (435 lines)
+- `phase3_gfed_processor.md` (440 lines)
+- `phase4_diurnal_processor.md` (733 lines)
+- `phase6_cbf_input_pipeline.md` (209 lines)
+- `phase6_pipeline_manager.md` (390 lines)
+- `phase7_cli_integration.md` (427 lines)
+- `phase8_scientific_utils.md` (1319 lines)
 
-# Remote STAC API
-met_data = load_met_data_from_stac(
-    stac_source='https://stac-api.example.com',
-    start_date='2020-01',
-    end_date='2020-12'
-)
-```
+### Phase README Files (5 files)
+Implementation summaries for superseded phases:
+- `README_PHASE1.md` (197 lines)
+- `README_PHASE2.md` (396 lines)
+- `README_PHASE3.md` (388 lines)
+- `README_PHASE4.md` (441 lines)
+- `README_PHASE8.md` (413 lines)
 
-### 2. `src/cbf_main.py`
-**Changes:**
-- Refactored `main()` into parameterized `generate_cbf_files()` function
-- Added parameters for flexible configuration:
-  - `stac_source`: Local or remote STAC catalog
-  - `start_date`, `end_date`: Date range for meteorology
-  - `output_directory`: Where to save CBF files
-  - `land_frac_file`, `obs_driver_file`, etc.: Optional input file paths
-  - `experiment_id`, `lat_range`, `lon_range`, `land_threshold`: Processing parameters
-- Returns result dictionary with:
-  - `successful_pixels`: Number of successfully generated CBF files
-  - `failed_pixels`: Number of failed pixels
-  - `output_directory`: Path to output directory
-- Kept backward-compatible `main()` for script execution
+### Historical Documentation (3 files)
+- `gemini.md` (38 lines) - Old validation report (all issues resolved)
+- `phase5_netcdf_system.md` (826 lines) - Consolidated into Phase 1
+- `co2_variable_lifecycle.md` (395 lines) - Variable lifecycles now in STAC docs
+- `gfed_variable_lifecycle.md` (600 lines) - Variable lifecycles now in STAC docs
 
-**Usage:**
-```python
-from cbf_main import generate_cbf_files
+## Files Retained
 
-results = generate_cbf_files(
-    stac_source='/path/to/catalog.json',
-    start_date='2020-01',
-    end_date='2020-12',
-    output_directory='./output',
-    experiment_id='001'
-)
+### Current Documentation (6 files)
+- [AGENT_ONBOARDING.md](plans/AGENT_ONBOARDING.md) - Comprehensive current onboarding
+- [STAC_IMPLEMENTATION_SUMMARY.md](plans/STAC_IMPLEMENTATION_SUMMARY.md) - Current STAC architecture
+- [CBF_IMPLEMENTATION_SUMMARY.md](plans/CBF_IMPLEMENTATION_SUMMARY.md) - Current CBF implementation
+- [MIGRATION_NOTES.md](plans/MIGRATION_NOTES.md) - ecmwf-datastores-client migration
+- [README.md](plans/README.md) - Master index for all plans
+- [configuration_hierarchy.md](plans/configuration_hierarchy.md) - Unified config system docs
 
-print(f"Generated {results['successful_pixels']} CBF files")
-```
+### Current Diagrams (retained)
+- [plans/diagrams/](plans/diagrams/) - All current workflow diagrams (Dec 2024)
+- [plans/pdfs/](plans/pdfs/) - PDF documentation
+- [plans/images/](plans/images/) - Image assets
 
-### 3. `src/stac_cli.py`
-**Changes:**
-- Updated import: `from cbf_generator import CBFGenerator` → `from cbf_main import generate_cbf_files`
-- Refactored `handle_cbf_generate()` to use `generate_cbf_files()` directly
-- Removed dependency on obsolete `CBFGenerator` class
-- CLI now works with both local and remote STAC sources
+## Rationale
 
-**CLI Usage:**
-```bash
-# Using local STAC catalog
-python -m src.stac_cli cbf-generate \
-    --stac-api /path/to/catalog.json \
-    --start 2020-01 --end 2020-12 \
-    --output ./cbf_output
+The project has transitioned from the original MATLAB migration approach to a **STAC-based data pipeline architecture**. The removed files represented the old architecture and planning approach, which were creating confusion for new contributors.
 
-# Using remote STAC API
-python -m src.stac_cli cbf-generate \
-    --stac-api https://stac.maap-project.org \
-    --start 2020-01 --end 2020-12 \
-    --output ./cbf_output
-```
+### Key Changes in Current Architecture
+- **STAC-based downloaders** with standardized metadata
+- **Independent data acquisition** → STAC catalog → CBF generation workflow
+- **Monthly-only focus** (no diurnal processing in current implementation)
+- **Modular downloaders**: ECMWF, NOAA, GFED with STAC integration
 
-### 4. `src/cbf_generator.py`
-**Status:** REMOVED (obsolete)
+### Git Commit Reference
+Recent commits show the architectural transformation:
+- Removal of legacy MATLAB-style processor modules
+- Updates to reflect STAC data pipeline
+- New CBF generation implementation (documented in CBF_IMPLEMENTATION_SUMMARY.md)
 
-This file has been removed as its functionality was:
-- Redundant with `cbf_main.py`
-- Less flexible (hardcoded discovery logic)
-- Not aligned with the new STAC-based architecture
+## Impact
 
-## Architecture Improvements
+- **Reduced confusion**: Clear separation between obsolete plans and current implementation
+- **Cleaner documentation**: Focus on current STAC-based architecture
+- **Easier onboarding**: New contributors can focus on AGENT_ONBOARDING.md and implementation summaries
+- **Preserved history**: Git history retains all removed files if needed for reference
 
-### Before
-- Separate `cbf_generator.py` with `CBFGenerator` class (unused)
-- Hardcoded configuration in `cbf_main.py`
-- Only supported remote STAC APIs
+## References
 
-### After
-- Single `cbf_main.py` with parameterized `generate_cbf_files()` function
-- Flexible configuration via function parameters
-- Supports both local and remote STAC catalogs
-- CLI and programmatic usage unified
-
-## Migration Guide
-
-If you were using `CBFGenerator` (unlikely as it wasn't used anywhere):
-
-**Old:**
-```python
-from cbf_generator import CBFGenerator
-
-generator = CBFGenerator(
-    stac_api_url='https://stac.example.com',
-    output_directory='./output',
-    verbose=True
-)
-
-results = generator.generate(
-    start_date='2020-01',
-    end_date='2020-12',
-    region='conus'
-)
-```
-
-**New:**
-```python
-from cbf_main import generate_cbf_files
-
-results = generate_cbf_files(
-    stac_source='https://stac.example.com',  # or local path
-    start_date='2020-01',
-    end_date='2020-12',
-    output_directory='./output',
-)
-```
-
-## Testing
-
-Verified all imports work:
-```bash
-.venv/bin/python -c "from src.stac_met_loader import discover_stac_items, load_met_data_from_stac; from src.cbf_main import generate_cbf_files; print('✓ All imports successful')"
-```
-
-Result: ✓ All imports successful
-
-## Benefits
-
-1. **Flexibility**: Users can now test with local STAC catalogs without setting up a remote API
-2. **Offline Workflows**: Support for air-gapped environments
-3. **Simplified Architecture**: Removed redundant code and unified CBF generation
-4. **Better Testing**: Easier to test with local fixture catalogs
-5. **Backward Compatibility**: Existing `cbf_main.py` script usage unchanged
+For current architecture and implementation details, see:
+1. [AGENT_ONBOARDING.md](plans/AGENT_ONBOARDING.md) - Start here for comprehensive onboarding
+2. [STAC_IMPLEMENTATION_SUMMARY.md](plans/STAC_IMPLEMENTATION_SUMMARY.md) - STAC architecture details
+3. [CBF_IMPLEMENTATION_SUMMARY.md](plans/CBF_IMPLEMENTATION_SUMMARY.md) - CBF generation workflow
+4. [plans/diagrams/](plans/diagrams/) - Visual workflow diagrams
