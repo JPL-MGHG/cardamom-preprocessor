@@ -18,119 +18,111 @@ pip install cdsapi maap-py pystac pystac-client boto3
 
 **Testing and validation:**
 ```bash
-# Test the ECMWF downloader CLI
-python ecmwf/ecmwf_downloader.py -h
+# Test STAC CLI
+.venv/bin/python -m src.stac_cli --help
+.venv/bin/python -m src.stac_cli ecmwf --help
+.venv/bin/python -m src.stac_cli noaa --help
+.venv/bin/python -m src.stac_cli gfed --help
+.venv/bin/python -m src.stac_cli cbf-generate --help
 
-# Test predefined CARDAMOM configurations
-python ecmwf/ecmwf_downloader.py cardamom-monthly -y 2020 -m 1
+# Test downloads
+.venv/bin/python -m src.stac_cli ecmwf --variables t2m_min,t2m_max --year 2020 --month 1 --output ./test_output
 
-# Run MAAP algorithm locally (requires CDS credentials)
-./.maap/run.sh cardamom-monthly ./test_output 2020 1-3
-```
-
-**MAAP platform commands:**
-```bash
-# Build MAAP algorithm environment
-./.maap/build.sh
-
-# Run MAAP wrapper for local testing
-python .maap/dps_wrapper.py cardamom-monthly ./output 2020-2021 1-12
+# Run tests
+.venv/bin/python -m pytest tests/ -v
 ```
 
 ## Architecture Overview
 
-This repository implements a **modular ECMWF data downloader** for the CARDAMOM carbon cycle modeling framework. It creates preprocessed meteorological datasets required for NASA MAAP platform carbon cycle analysis.
+This repository implements a **STAC-based data preprocessing pipeline** for the CARDAMOM carbon cycle modeling framework. It provides modular tools for downloading, cataloging, and processing meteorological and observational data required for CARDAMOM carbon cycle analysis.
 
 ### Core Components
 
-**Main Python Module (`ecmwf/`):**
-- `ECMWFDownloader` class: Generic ECMWF CDS API interface with configurable parameters
-- Command-line interface supporting both predefined CARDAMOM configurations and custom downloads
-- Supports hourly and monthly ERA5 reanalysis data with flexible spatial/temporal filtering
-- Built-in variable mapping system for consistent file naming conventions
+**STAC-Based Data Pipeline (`src/`):**
+- `stac_cli.py`: Command-line interface for downloaders and CBF generation
+- `stac_utils.py`: STAC catalog creation and management utilities
+- `stac_met_loader.py`: Load meteorological data from STAC catalogs with completeness validation
+- `cbf_main.py`: CBF file generation orchestration using STAC meteorology + user-provided observations
+- `cbf_obs_handler.py`: Observational data loading with graceful NaN-filling for missing values
+- `downloaders/` package: Modular downloaders (ECMWF, NOAA, GFED) with BaseDownloader abstract class
 
-**MAAP Integration (`.maap/`):**
-- `algorithm_config.yaml`: NASA MAAP platform algorithm definition
-- `dps_wrapper.py`: Python wrapper for MAAP DPS (Data Processing System) integration
-- `run.sh`: Shell wrapper mapping MAAP parameters to CLI arguments
-- `build.sh`: Conda environment setup for MAAP execution
+**Main Workflow:**
+1. **Download data sources independently** → Each downloader creates STAC metadata
+2. **Discover meteorology from STAC catalog** → Validate completeness (FAIL if missing data)
+3. **Load user-provided observational data** → NaN-fill missing values for graceful degradation
+4. **Generate pixel-specific CBF files** → CARDAMOM-ready format for carbon cycle modeling
 
 **Environment Configuration:**
-- `environment.yml`: Conda environment with cdsapi, xarray, netcdf4, maap-py dependencies
-- Designed for Python 3.9 with NASA MAAP platform compatibility
+- `environment.yml`: Conda environment with cdsapi, xarray, netcdf4, pystac, pystac-client dependencies
+- Designed for Python 3.9+ with NASA MAAP platform compatibility
 
 ### Data Flow Architecture
 
-1. **Input Configuration**: MAAP algorithm parameters or CLI arguments specify download requirements
-2. **CDS API Integration**: Authenticates with ECMWF Climate Data Store using API credentials
-3. **Data Retrieval**: Downloads ERA5 reanalysis data in NetCDF format with configurable spatial/temporal bounds
-4. **File Organization**: Generates consistently named files following CARDAMOM conventions
-5. **MAAP Output**: Creates output manifest for NASA MAAP platform integration
+1. **Phase 1: Data Acquisition**
+   - ECMWFDownloader → ERA5 meteorology → STAC catalog
+   - NOAADownloader → Global CO₂ concentrations → STAC catalog
+   - GFEDDownloader → Burned area & fire emissions → STAC catalog
 
-### Predefined CARDAMOM Configurations
+2. **Phase 2: Meteorology Discovery**
+   - `stac_met_loader.py` discovers all meteorological variables from STAC catalog
+   - Validates completeness: FAILS if any required month is missing
+   - Loads as unified xarray Dataset with standardized time coordinates
 
-**CARDAMOM Monthly (Global):**
-- Hourly averaged variables: 2m_temperature, 2m_dewpoint_temperature
-- Monthly averaged variables: total_precipitation, skin_temperature, surface_solar_radiation_downwards, snowfall
-- Global coverage: 89.75°N to -89.75°N, -179.75°W to 179.75°E
-- Default time range: 2001-2024
+3. **Phase 3: Observational Data**
+   - `cbf_obs_handler.py` loads user-provided observational constraints
+   - NaN-fills missing observations for graceful degradation
+   - Allows forward-only mode if no observations available
 
-**CARDAMOM Hourly (CONUS):**
-- Variables: skin_temperature, surface_solar_radiation_downwards
-- CONUS region: 60°N to 20°N, -130°W to -50°W
-- All hourly timesteps (00:00-23:00)
-- Default time range: 2015-2020
+4. **Phase 4: CBF Generation**
+   - `cbf_main.py` generates pixel-specific CBF files
+   - Sets forcing variables from STAC meteorology
+   - Sets observational constraints from user data (optional)
+   - Outputs CARDAMOM-ready NetCDF files
 
-### File Naming Conventions
+### Key Features
 
-- **Hourly files**: `{prefix}_{variable_abbr}_{MM}{YYYY}.nc`
-- **Monthly files**: `{prefix}_{variable}_{MM}{YYYY}.nc`
-- **CARDAMOM prefix**: `ECMWF_CARDAMOM_DRIVER_` or `ECMWF_CARDAMOM_HOURLY_DRIVER_`
+**STAC Catalog Benefits:**
+- **Discoverability**: Easy querying and filtering of available data
+- **Metadata Richness**: Each file includes comprehensive spatiotemporal metadata
+- **Incremental Updates**: Add new data without rebuilding entire catalogs
+- **Validation**: Centralized validation ensures data completeness before CBF generation
+- **Decoupling**: Download and CBF generation are independent, reusable steps
 
-### MAAP Platform Integration
-
-The algorithm is designed as a **NASA MAAP algorithm** with the following characteristics:
-- Algorithm ID: `cardamom-ecmwf-downloader`
-- Queue: `maap-dps-worker-8gb` (configurable based on data volume)
-- Container: Custom MAAP base image with scientific Python stack
-- Disk space: 100GB default (adjustable for large downloads)
-
-**Key MAAP Parameters:**
-- `download_mode`: Selects predefined CARDAMOM configurations or custom modes
-- `years`/`months`: Temporal filtering with range support (e.g., "2020-2022", "6-8")
-- `variables`: Comma-separated ECMWF variable names
-- `area`: Optional spatial bounds as "N,W,S,E"
-- `grid`: Spatial resolution (default: "0.5/0.5")
+**Monthly-Only Workflow:**
+- Focus on monthly meteorological data (no hourly/diurnal processing)
+- Simplified processing pipeline optimized for monthly carbon cycle modeling
+- Reduced computational complexity and storage requirements
 
 ### Authentication Requirements
 
-**ECMWF CDS API credentials required:**
+**ECMWF CDS API credentials required for ERA5 downloads:**
 - Local development: `.cdsapirc` file in home directory
-- MAAP platform: `ECMWF_CDS_UID` and `ECMWF_CDS_KEY` environment variables
-
-### Error Handling and Reliability
-
-- **Duplicate detection**: Automatically skips existing files to enable resumable downloads
-- **Graceful API handling**: Handles ECMWF CDS queue system and rate limiting
-- **Parameter validation**: Validates spatial/temporal bounds and variable names
-- **Logging integration**: Structured logging for MAAP platform monitoring
+- Environment variables: `ECMWF_CDS_UID` and `ECMWF_CDS_KEY`
 
 ## Development Patterns
 
-**Adding new variables:**
-1. Check ERA5 variable documentation for exact names
-2. Add to predefined configurations if commonly used
-3. Update variable mapping dictionaries for consistent abbreviations
+**Adding new data sources:**
+1. Create downloader class in `src/downloaders/` inheriting from `BaseDownloader`
+2. Implement required methods: `download_data()`, `_create_stac_item()`
+3. Add STAC metadata generation for outputs
+4. Register new CLI subcommand in `src/stac_cli.py`
+5. Update `CARDAMOM_VARIABLE_REGISTRY` in `src/cardamom_variables.py` if adding new variables
 
-**Extending spatial coverage:**
-1. Define new area bounds as `[North, West, South, East]` in decimal degrees
-2. Consider memory implications for high-resolution global datasets
-3. Test with small temporal ranges before full downloads
+**Adding new variables to existing downloaders:**
+1. Check data source documentation for exact variable names (e.g., ERA5 variable documentation)
+2. Add variable to `CARDAMOM_VARIABLE_REGISTRY` with:
+   - Scientific name, CBF name, units
+   - Interpolation method (based on spatial characteristics)
+   - Physical validation ranges
+3. Update downloader's variable processing logic if needed
+4. Update STAC metadata to include new variable
 
-**MAAP algorithm updates:**
-1. Modify `algorithm_config.yaml` for parameter changes
-2. Update `run.sh` for new parameter mapping logic
-3. Test locally with `dps_wrapper.py` before platform deployment
+**Extending STAC workflow:**
+1. STAC catalog as single source of truth for downloaded data
+2. Each downloader creates/updates STAC collection and items
+3. CBF generator discovers data through STAC catalog queries
+4. Graceful degradation: NaN-fill for missing observational data
+5. Validation: FAIL early if required meteorology is missing
 
 ## Connection to CARDAMOM Framework
 
