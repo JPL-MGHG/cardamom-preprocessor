@@ -21,49 +21,40 @@ Create input files (`AllMet05x05_LFmasked.nc`, `AlltsObs05x05_LFmasked.nc`, etc.
 
 ```
 cardamom-preprocessor/
-├── src/                              # Main Python package (31 modules)
-│   ├── Infrastructure & Orchestration
-│   │   ├── cardamom_preprocessor.py   # Main CARDAMOMProcessor class
-│   │   ├── config_manager.py          # Configuration management
-│   │   ├── logging_utils.py           # Logging infrastructure
-│   │   └── validation.py              # Quality assurance framework
-│   │
-│   ├── Data Downloaders
-│   │   ├── base_downloader.py         # Abstract base class
-│   │   ├── ecmwf_downloader.py        # ERA5 meteorology
-│   │   ├── noaa_downloader.py         # CO2 concentrations
-│   │   ├── gfed_downloader.py         # Fire emissions
-│   │   ├── modis_downloader.py        # Land-sea masks
-│   │   ├── downloader_factory.py      # Factory + retry logic
-│   │   └── data_source_config.py      # Source configurations
-│   │
-│   ├── Data Processors
-│   │   ├── cbf_met_processor.py       # Meteorological processing
-│   │   ├── diurnal_processor.py       # Monthly→hourly downscaling
-│   │   ├── gfed_processor.py          # Fire data processing
-│   │   ├── met_driver_loader.py       # Met driver loading
-│   │   ├── cms_flux_loader.py         # Carbon flux loading
-│   │   └── gfed_diurnal_loader.py     # GFED diurnal patterns
+├── src/                              # Main Python package (STAC-based architecture)
+│   ├── STAC-Based Workflow
+│   │   ├── stac_cli.py               # CLI for downloaders and CBF generation
+│   │   ├── stac_utils.py             # STAC catalog management
+│   │   ├── stac_met_loader.py        # Load meteorology from STAC catalogs
+│   │   ├── cbf_main.py               # CBF generation orchestration
+│   │   ├── cbf_obs_handler.py        # Observational data with NaN-fill
+│   │   │
+│   │   └── downloaders/              # Modular downloader package
+│   │       ├── __init__.py
+│   │       ├── base.py               # Abstract base class
+│   │       ├── ecmwf_downloader.py   # ERA5 meteorology with STAC metadata
+│   │       ├── noaa_downloader.py    # NOAA CO2 with STAC metadata
+│   │       └── gfed_downloader.py    # GFED fire with STAC metadata
 │   │
 │   ├── Scientific Calculations
-│   │   ├── atmospheric_science.py     # VPD, humidity, radiation
-│   │   ├── carbon_cycle.py            # NEE, GPP, respiration
-│   │   ├── scientific_utils.py        # Generic scientific utils
-│   │   ├── statistics_utils.py        # Aggregation, interpolation
-│   │   ├── units_constants.py         # Physical constants
-│   │   └── quality_control.py         # Data validation
+│   │   ├── atmospheric_science.py    # VPD, humidity, radiation
+│   │   ├── carbon_cycle.py           # NEE, GPP, respiration
+│   │   ├── scientific_utils.py       # Generic scientific utils
+│   │   ├── statistics_utils.py       # Aggregation, interpolation
+│   │   ├── units_constants.py        # Physical constants
+│   │   └── quality_control.py        # Data validation
 │   │
 │   ├── Infrastructure Utilities
-│   │   ├── netcdf_infrastructure.py   # NetCDF file management
-│   │   ├── coordinate_systems.py      # Geographic grids
-│   │   ├── cardamom_variables.py      # Master variable registry
-│   │   ├── time_utils.py              # Time standardization
-│   │   └── cbf_cli.py                 # Command-line interface
+│   │   ├── netcdf_infrastructure.py  # NetCDF file management
+│   │   ├── cardamom_variables.py     # Master variable registry
+│   │   ├── time_utils.py             # Time standardization
+│   │   ├── validation.py             # Quality assurance framework
+│   │   └── data_source_config.py     # Source configurations
 │   │
 ├── matlab-migration/
 │   └── erens_cbf_code.py             # CBF generation (end goal)
 │
-├── plans/                            # Workflow diagrams
+├── plans/                            # Implementation plans and diagrams
 ├── environment.yml                   # Python environment
 ├── CLAUDE.md                         # Instructions for Claude Code
 └── README.md                         # Project documentation
@@ -76,205 +67,199 @@ cardamom-preprocessor/
 ### System Architecture Diagram
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                     CARDAMOMProcessor                            │
-│                (Main Orchestration Engine)                       │
-└──────────┬───────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│              STAC-Based CBF Workflow             │
+└──────────┬───────────────────────────────────────┘
            │
-           ├─► CardamomConfig ──────► DataSourceConfig
-           │   (YAML + env vars)       (Source definitions)
-           │
-           ├─► DownloaderFactory ──┬─► ECMWFDownloader
-           │   (Factory pattern)    ├─► NOAADownloader
-           │                        ├─► GFEDDownloader
-           │                        └─► MODISDownloader
-           │
-           ├─► DiurnalProcessor ────┬─► DiurnalCalculator
-           │   (Flux downscaling)   └─► DiurnalOutputWriters
-           │
-           ├─► CBFMetProcessor ──────► atmospheric_science.py
-           │   (Met processing)       └─► carbon_cycle.py
-           │
-           ├─► GFEDProcessor ─────────► Fire emissions
-           │
-           ├─► CARDAMOMNetCDFWriter ──► NetCDF outputs
-           │   (File generation)
-           │
-           ├─► CoordinateGrid ────────► Spatial grids
-           │   (Geographic systems)
-           │
-           ├─► QualityAssurance ───────► Validation
-           │   (QC framework)
-           │
-           └─► ProcessingLogger ───────► Structured logging
+           ├─► stac_cli.py ──┬─► ECMWFDownloader (src/downloaders/)
+           │                 ├─► NOAADownloader
+           │                 └─► GFEDDownloader
+           │                      ↓
+           │                 STAC Catalog (pystac)
+           │                 [catalog.json, collections, items]
+           │                      ↓
+           ├─► stac_met_loader.py
+           │   ├─ Discover all meteorological variables
+           │   ├─ Validate completeness (FAIL if missing)
+           │   └─ Load as unified xarray Dataset
+           │                      ↓
+           ├─► cbf_obs_handler.py
+           │   ├─ Load user-provided obs data
+           │   └─ NaN-fill for missing values
+           │                      ↓
+           └─► cbf_main.py
+               ├─ Extract pixel-specific data
+               ├─ Set forcing variables (from STAC met)
+               ├─ Set observational constraints (from user data)
+               └─ Generate CBF files
+                    ↓
+               Pixel-specific CBF files
+               [site{lat}_{lon}_ID{exp}exp0.cbf.nc]
 ```
 
 ### Data Flow Pipeline
 
 ```
 PHASE 1: DATA ACQUISITION
-├─ ECMWFDownloader → ERA5 meteorology (hourly/monthly)
-├─ NOAADownloader → Global CO2 concentrations
-├─ GFEDDownloader → Burned area & fire emissions
-└─ MODISDownloader → Land-sea masks
-
-PHASE 2: SCIENTIFIC CALCULATIONS
-├─ atmospheric_science.py
-│  ├─ saturation_pressure_water_matlab()
-│  ├─ calculate_vapor_pressure_deficit_matlab()
-│  └─ calculate_humidity_index()
-├─ carbon_cycle.py
-│  ├─ calculate_net_ecosystem_exchange()
-│  └─ validate_carbon_flux_mass_balance()
-└─ scientific_utils.py
-   ├─ convert_precipitation_units()
-   └─ convert_radiation_units()
-
-PHASE 3: DATA PROCESSING
-├─ CBFMetProcessor: ERA5 → CBF meteorology
-│  ├─ Unit conversions (K→C, m→mm, J/m²→W/m²)
-│  ├─ Variable renaming (ERA5 names → CBF names)
-│  ├─ Spatial regridding (0.25° → 0.5°)
-│  └─ Quality control (range validation)
+├─ ECMWFDownloader → ERA5 meteorology → STAC catalog
+│  ├─ Monthly variables: T2M_MIN, T2M_MAX, VPD, TOTAL_PREC,
+│  │                     SSRD, STRD, SKT, SNOWFALL
+│  ├─ Derives VPD from temperature and dewpoint
+│  └─ Creates STAC items with spatiotemporal metadata
 │
-├─ DiurnalProcessor: Monthly → Hourly downscaling
-│  ├─ GPP scaled by solar radiation
-│  ├─ Respiration scaled by temperature
-│  └─ Fire emissions with diurnal timing
+├─ NOAADownloader → Global CO₂ → STAC catalog
+│  ├─ Monthly CO2 concentrations (entire time series)
+│  └─ Creates STAC item with temporal metadata
 │
-└─ GFEDProcessor: GFED → CBF fire format
-   ├─ Variable extraction (burned_area, DM)
-   ├─ Unit conversion (fraction → gC/m²/day)
-   └─ Gap-filling for missing data
+└─ GFEDDownloader → Burned area & fire → STAC catalog
+   ├─ Monthly burned area fraction
+   ├─ Fire emissions (if available)
+   └─ Creates STAC items with spatiotemporal metadata
 
-PHASE 4: QUALITY ASSURANCE
-├─ Physical plausibility checks
-├─ Unit consistency validation
-├─ Mass balance verification
-└─ Data completeness reports
+PHASE 2: METEOROLOGY DISCOVERY
+└─ stac_met_loader.py
+   ├─ Query STAC catalog for date range
+   ├─ Discover all available meteorological variables
+   ├─ Validate completeness: FAIL if any month missing
+   ├─ Load NetCDF files into unified xarray Dataset
+   ├─ Standardize time coordinates for CBF compatibility
+   └─ Return meteorology ready for CBF generation
 
-PHASE 5: OUTPUT GENERATION
-├─ AllMet05x05_LFmasked.nc (meteorological drivers)
-├─ AlltsObs05x05_LFmasked.nc (observational constraints)
-├─ Diurnal flux files (hourly carbon fluxes)
-└─ Processing logs & QA reports
+PHASE 3: OBSERVATIONAL DATA
+└─ cbf_obs_handler.py
+   ├─ Load user-provided observational NetCDF files:
+   │  ├─ AlltsObs05x05.nc (LAI, GPP, ABGB, EWT, SCF)
+   │  ├─ CARDAMOM-MAPS_05deg_HWSD_PEQ_iniSOM.nc
+   │  └─ CARDAMOM-MAPS_05deg_GFED4_Mean_FIR.nc
+   ├─ NaN-fill missing observations (graceful degradation)
+   └─ Allow forward-only mode if no observations available
+
+PHASE 4: CBF GENERATION
+└─ cbf_main.py
+   ├─ Load land-sea fraction mask
+   ├─ Identify valid land pixels (>0.5 land fraction)
+   ├─ For each pixel:
+   │  ├─ Extract meteorology from STAC-loaded data
+   │  ├─ Extract observations from user-provided data
+   │  ├─ Set forcing variables (VPD, PREC, TMIN, TMAX, etc.)
+   │  ├─ Set observation constraints (LAI, GPP, ABGB, etc.)
+   │  ├─ Set single-value constraints (SOM, CUE, Mean_FIR)
+   │  └─ Set MCMC configuration attributes
+   └─ Save pixel-specific CBF NetCDF file
+
+PHASE 5: QUALITY ASSURANCE (Built into each phase)
+├─ STAC metadata validation during downloads
+├─ Completeness checks in stac_met_loader
+├─ Physical range validation (positive values where required)
+└─ Unit consistency enforced by cardamom_variables.py
 ```
 
 ---
 
 ## 4. Key Modules & Responsibilities
 
-### 4.1 Core Orchestration
+### 4.1 STAC-Based Workflow Modules
 
-**`cardamom_preprocessor.py` - CARDAMOMProcessor**
-- **Purpose**: Main orchestration engine coordinating all workflows
-- **Key Methods**:
-  - `process_global_monthly()` - Global monthly meteorology
-  - `process_conus_diurnal()` - CONUS hourly flux downscaling
-  - `process_batch()` - Batch processing with checkpointing
-  - `validate_inputs()` - Pre-processing validation
-- **Dependencies**: All other modules
+**`stac_cli.py`** - Command-Line Interface
+- **Purpose**: Main CLI for downloaders and CBF generation
+- **Subcommands**:
+  - `ecmwf` - Download ERA5 meteorological data
+  - `noaa` - Download NOAA CO2 concentrations
+  - `gfed` - Download GFED fire data
+  - `cbf-generate` - Generate CBF files from STAC catalog
+- **Usage**:
+```bash
+.venv/bin/python -m src.stac_cli ecmwf --variables t2m_min,t2m_max --year 2020 --month 1
+.venv/bin/python -m src.stac_cli cbf-generate --stac-api file://./catalog.json --start 2020-01 --end 2020-12
+```
 
-**`config_manager.py` - CardamomConfig**
-- **Purpose**: Centralized configuration management
+**`stac_utils.py`** - STAC Catalog Management
+- **Purpose**: Create and manage STAC catalogs for downloaded data
+- **Key Functions**:
+  - `create_root_catalog()` - Create root STAC catalog
+  - `create_stac_collection()` - Create data collection
+  - `create_stac_item()` - Add data item with metadata
+  - `update_catalog_incremental()` - Incremental updates
+
+**`stac_met_loader.py`** - Meteorology Discovery and Loading
+- **Purpose**: Load meteorological data from STAC catalogs with validation
+- **Process**:
+  1. Query STAC catalog for specified date range
+  2. Discover all available meteorological variables
+  3. **Validate completeness**: FAIL if any required month is missing
+  4. Load NetCDF files into unified xarray Dataset
+  5. Return meteorology ready for CBF generation
+
+**`cbf_main.py`** - CBF Generation Orchestration
+- **Purpose**: Generate CBF files from STAC meteorology + user observations
+- **Process**:
+  1. Load meteorology from STAC catalog
+  2. Load user-provided observational data
+  3. Identify valid land pixels
+  4. For each pixel: extract data, generate CBF file
+- **Output**: Pixel-specific CBF NetCDF files
+
+**`cbf_obs_handler.py`** - Observational Data Handler
+- **Purpose**: Load observational data with graceful NaN-filling
 - **Features**:
-  - YAML-based configuration files
-  - Environment variable overrides
-  - Parameter validation
-  - Default configurations
-- **Key Methods**:
-  - `get_workflow_config()`
-  - `get_downloader_config()`
-  - `get_quality_control_config()`
+  - NaN-fills missing observations (graceful degradation)
+  - Allows forward-only mode if no observations available
+  - Loads: LAI, GPP, ABGB, EWT, SCF, SOM, Mean_FIR
 
-### 4.2 Data Downloaders (Factory Pattern)
+### 4.2 Modular Downloaders (`src/downloaders/`)
 
-**`base_downloader.py` - BaseDownloader (ABC)**
+**`downloaders/base.py`** - BaseDownloader (Abstract Base Class)
 - **Purpose**: Abstract base class defining downloader interface
 - **Required Methods**:
-  - `download_data()` - Main download method
-  - `check_existing_files()` - Skip completed downloads
-  - `validate_downloaded_data()` - Post-download validation
-  - `get_download_status()` - Progress tracking
+  - `download_data(year, month, **kwargs)` - Main download method
+  - `_create_stac_item(file_path, year, month)` - Create STAC metadata for output
+- **Features**:
+  - Consistent interface across all downloaders
+  - STAC metadata generation built into base class
+  - Automatic catalog creation/update
 
-**`ecmwf_downloader.py` - ECMWFDownloader**
-- **Purpose**: Download ERA5 reanalysis data from ECMWF CDS
-- **Data Variables**: 2m_temperature, 2m_dewpoint_temperature, total_precipitation, surface_solar_radiation_downwards, surface_thermal_radiation_downwards, skin_temperature, snowfall
+**`downloaders/ecmwf_downloader.py`** - ECMWFDownloader
+- **Purpose**: Download ERA5 meteorological data with STAC metadata
+- **Data Variables**: T2M_MIN, T2M_MAX, VPD, TOTAL_PREC, SSRD, STRD, SKT, SNOWFALL
 - **Key Features**:
-  - Hourly and monthly aggregation
-  - Configurable spatial/temporal filtering
-  - Job monitoring for long-running requests
-  - Automatic retry on CDS queue failures
-- **Authentication**: Requires `.cdsapirc` or `ECMWF_CDS_UID`/`ECMWF_CDS_KEY`
+  - Downloads from ECMWF Climate Data Store (CDS)
+  - Calculates VPD from temperature and dewpoint
+  - Creates STAC items for each output file
+  - Supports incremental catalog updates
+- **Authentication**: Requires `.cdsapirc` or `ECMWF_CDS_UID`/`ECMWF_CDS_KEY` environment variables
+- **Usage**:
+```python
+downloader = ECMWFDownloader(output_directory='./era5_output')
+downloader.download_and_process(
+    variables=['t2m_min', 't2m_max', 'vpd'],
+    year=2020,
+    month=1,
+    incremental=True
+)
+```
 
-**`noaa_downloader.py` - NOAADownloader**
-- **Purpose**: Download NOAA/ESRL global CO2 concentrations
-- **Data**: Monthly mean CO2 (ppm) from Mauna Loa + global stations
-- **Output Formats**:
-  - Spatially replicated NetCDF (global constant)
-  - Time series NetCDF
+**`downloaders/noaa_downloader.py`** - NOAADownloader
+- **Purpose**: Download NOAA CO2 concentrations with STAC metadata
+- **Data**: Monthly mean CO2 (ppm) from global monitoring network
+- **Key Features**:
+  - Downloads entire time series (all available data)
+  - Converts from NOAA HTTPS format to NetCDF
+  - Creates STAC item with temporal metadata
 - **URL**: https://gml.noaa.gov/webdata/ccgg/trends/co2/
+- **Output**: Spatially-replicated NetCDF (global constant CO2 per month)
 
-**`gfed_downloader.py` - GFEDDownloader**
-- **Purpose**: Download GFED4.1s fire emissions data
-- **Data**: Burned area, dry matter combustion, carbon emissions
-- **Format**: HDF5 files (yearly)
+**`downloaders/gfed_downloader.py`** - GFEDDownloader
+- **Purpose**: Download GFED fire data with STAC metadata
+- **Data**: Burned area fraction, dry matter, fire emissions
+- **Format**: Converts HDF5 → NetCDF with STAC metadata
 - **Resolution**: 0.25° global
 - **URL**: https://www.geo.vu.nl/~gwerf/GFED/GFED4/
+- **Key Features**:
+  - Automatic HDF5 to NetCDF conversion
+  - Extracts burned area and fire carbon
+  - Creates STAC items for each month
 
-**`modis_downloader.py` - MODISDownloader**
-- **Purpose**: Generate land-sea fraction masks
-- **Data Source**: MODIS-based land cover
-- **Output**: Binary mask for filtering ocean pixels
-
-**`downloader_factory.py` - DownloaderFactory + RetryManager**
-- **Purpose**: Factory pattern + robust error handling
-- **DownloaderFactory Methods**:
-  - `create_downloader(source_name)` - Instantiate specific downloader
-  - `create_all_downloaders()` - Create all configured downloaders
-  - `check_downloader_dependencies()` - Validate prerequisites
-- **RetryManager Methods**:
-  - `download_with_retry()` - Exponential backoff with jitter
-  - `categorize_error()` - Classify error types (network, auth, server)
-  - `get_retry_statistics()` - Track retry performance
-
-### 4.3 Data Processors
-
-**`cbf_met_processor.py` - CBFMetProcessor**
-- **Purpose**: Process ERA5 meteorology into CBF format
-- **Transformations**:
-  - Temperature: K → K (preserved), split into TMIN/TMAX
-  - Precipitation: m → mm/day
-  - Radiation: J/m² → W/m²
-  - Snowfall: m water equiv → mm/day
-  - VPD: Calculate from temperature + dewpoint
-- **Key Methods**:
-  - `process_single_file()` - Single variable processing
-  - `process_batch()` - Batch processing
-  - `regrid_to_target()` - Spatial regridding
-  - `apply_unit_conversions()` - Unit standardization
-
-**`diurnal_processor.py` - DiurnalProcessor**
-- **Purpose**: Downscale monthly carbon fluxes to hourly resolution
-- **Algorithm**:
-  - GPP: Scaled by hourly solar radiation pattern
-  - Respiration: Scaled by hourly temperature curve
-  - Fire: Applied according to GFED diurnal timing
-- **Inputs**:
-  - Monthly GPP, REC, FIR (from CMS-Flux or models)
-  - Hourly meteorology (SSRD, temperature)
-  - GFED diurnal fire patterns
-- **Output**: Hourly flux time series
-
-**`gfed_processor.py` - GFEDProcessor**
-- **Purpose**: Process GFED HDF5 files into CARDAMOM format
-- **Key Methods**:
-  - `process_gfed_monthly()` - Extract monthly data
-  - `gap_fill_burned_area()` - Fill missing values
-  - `to_netcdf_files()` - Create NetCDF outputs
-  - `to_cardamom_format()` - Convert to CBF variable names
-
-### 4.4 Scientific Calculation Modules
+### 4.3 Scientific Calculation Modules
 
 **`atmospheric_science.py`**
 - **Purpose**: Atmospheric physics calculations
@@ -323,82 +308,46 @@ PHASE 5: OUTPUT GENERATION
   - `validate_carbon_flux_range(flux_gc_m2_day)` - Check flux ranges
   - `create_quality_report(dataset)` - Generate QA reports
 
-### 4.5 Infrastructure Utilities
+### 4.4 Infrastructure Utilities
 
-**`netcdf_infrastructure.py` - CARDAMOMNetCDFWriter**
-- **Purpose**: NetCDF file creation and management
-- **Key Methods**:
-  - `write_2d_dataset()` - Spatial-only data (lat, lon)
-  - `write_3d_dataset()` - Spatiotemporal data (time, lat, lon)
-  - `write_cbf_file()` - CBF-specific format
-  - `add_metadata()` - CF-compliant metadata
+**`netcdf_infrastructure.py`** - NetCDF File Management
+- **Purpose**: NetCDF file creation and utilities
 - **Features**:
-  - CF-1.8 compliant
+  - CF-1.8 compliant file generation
   - Compression and chunking
   - Custom fill values
+  - Metadata management
 
-**`coordinate_systems.py` - CoordinateGrid + StandardGrids**
-- **Purpose**: Geographic grid management
-- **StandardGrids**:
-  - `GLOBAL_05DEG`: Global 0.5° (360×720 grid)
-  - `GLOBAL_025DEG`: Global 0.25° (720×1440 grid)
-  - `CONUS`: CONUS-specific grid (60°N-20°N, 130°W-50°W)
-  - `GEOSCHEM_4x5`: GeosChem 4°×5° grid
-- **CoordinateGrid Methods**:
-  - `get_indices_for_region(lat_range, lon_range)`
-  - `get_regional_subset(data, region)`
-  - `get_grid_info()` - Grid metadata
-
-**`cardamom_variables.py` - CARDAMOM_VARIABLE_REGISTRY**
+**`cardamom_variables.py`** - CARDAMOM_VARIABLE_REGISTRY
 - **Purpose**: Single source of truth for all variables
-- **Structure**:
-```python
-CARDAMOM_VARIABLE_REGISTRY = {
-    '2m_temperature': {
-        'source': 'era5',
-        'alternative_names': ['t2m', 'T2M'],
-        'cbf_names': ['TMIN', 'TMAX'],
-        'units': {'source': 'K', 'cbf': 'K'},
-        'interpolation_method': 'linear',
-        'essential': True,
-        'data_type': 'forcing',
-        'temporal_resolution': 'hourly',
-        'description': '2-meter air temperature',
-        ...
-    },
-    # ... ~30+ variables
-}
-```
+- **Key Functions**:
+  - `get_variable_config(variable_name)` - Get complete metadata
+  - `get_interpolation_method(variable_name)` - Get spatial interpolation method
+  - `get_cbf_name(variable_name)` - Get CBF naming convention
+  - `get_variables_by_product_type(product_type)` - Group variables by ERA5 product
+- **Features**:
+  - Centralized variable definitions (name, units, interpolation, ranges)
+  - Variable-specific interpolation methods based on spatial characteristics
+  - Automatic unit conversion specifications
 
 **`time_utils.py`**
 - **Purpose**: Time coordinate standardization
 - **Functions**:
   - `standardize_time_units(dataset)` - Convert to 'days since 2001-01-01'
-  - `create_time_bounds(start_date, end_date, freq)`
-  - `validate_time_coordinates(dataset)`
+  - `create_time_bounds(start_date, end_date, freq)` - Generate time bounds
+  - `validate_time_coordinates(dataset)` - Validate time dimension
 
-**`logging_utils.py` - ProcessingLogger**
-- **Purpose**: Structured logging infrastructure
-- **Features**:
-  - Context managers for processing stages
-  - Progress tracking
-  - Error recovery logging
-  - QA report generation
-- **Usage**:
-```python
-with ProcessingLogger("Processing ERA5 data") as logger:
-    logger.info("Starting download")
-    # ... processing ...
-    logger.success("Download complete")
-```
+**`validation.py`** - Quality Assurance
+- **Purpose**: Data validation framework
+- **Key Functions**:
+  - `validate_file_structure(filepath)` - Check file structure
+  - `validate_variable_units(dataset, variable)` - Unit consistency
+  - `validate_coordinate_consistency(dataset)` - Spatial/temporal checks
+  - `generate_quality_report(dataset)` - QA report generation
 
-**`validation.py` - QualityAssurance**
-- **Purpose**: Comprehensive validation framework
-- **Key Methods**:
-  - `validate_file_structure(filepath)`
-  - `validate_variable_units(dataset, variable)`
-  - `validate_coordinate_consistency(dataset)`
-  - `generate_quality_report(dataset)`
+**`data_source_config.py`**
+- **Purpose**: Data source configurations
+- **Contains**: URLs, authentication details, file patterns for data sources
 
 ---
 
@@ -443,46 +392,61 @@ with ProcessingLogger("Processing ERA5 data") as logger:
 
 ## 6. Predefined Workflows
 
-### Workflow 1: Global Monthly Processing
-```python
-from cardamom_preprocessor import CARDAMOMProcessor
+### Workflow 1: Download Meteorology and Generate CBF Files
+```bash
+# Step 1: Download ERA5 meteorology for multiple months
+.venv/bin/python -m src.stac_cli ecmwf \
+    --variables t2m_min,t2m_max,vpd,ssrd,strd,total_prec,skt,snowfall \
+    --year 2020 --month 1 \
+    --output ./era5_output
 
-processor = CARDAMOMProcessor(config_file='config.yaml')
+# Repeat for additional months/years as needed
 
-# Download and process global monthly meteorology
-processor.process_global_monthly(
-    years=range(2001, 2021),
-    months=range(1, 13),
-    variables=['2m_temperature', 'total_precipitation',
-               'surface_solar_radiation_downwards', 'snowfall']
-)
+# Step 2: Generate CBF files from STAC catalog
+.venv/bin/python -m src.stac_cli cbf-generate \
+    --stac-api file://./era5_output/catalog.json \
+    --start 2020-01 --end 2020-12 \
+    --output ./cbf_output
 
-# Output: AllMet05x05_LFmasked.nc
+# Output: Pixel-specific CBF files (site{lat}_{lon}_ID{exp}exp0.cbf.nc)
 ```
 
-### Workflow 2: CONUS Diurnal Flux Downscaling
-```python
-# Downscale monthly fluxes to hourly resolution
-processor.process_conus_diurnal(
-    years=range(2015, 2021),
-    months=range(1, 13),
-    flux_variables=['GPP', 'REC', 'FIR']
-)
+### Workflow 2: Download All Data Sources
+```bash
+# Download ERA5 meteorology
+.venv/bin/python -m src.stac_cli ecmwf \
+    --variables t2m_min,t2m_max,vpd,total_prec,ssrd,strd \
+    --year 2020 --month 1-12 \
+    --output ./era5_output
 
-# Output: Hourly flux files for carbon analysis
+# Download NOAA CO2 (entire time series)
+.venv/bin/python -m src.stac_cli noaa \
+    --output ./noaa_output
+
+# Download GFED fire data
+.venv/bin/python -m src.stac_cli gfed \
+    --year 2020 --month 1-12 \
+    --output ./gfed_output
+
+# All downloaders create STAC catalogs automatically
 ```
 
-### Workflow 3: Fire Emissions Processing
+### Workflow 3: Programmatic CBF Generation
 ```python
-from gfed_processor import GFEDProcessor
+from src.cbf_main import generate_cbf_files
 
-gfed_proc = GFEDProcessor()
-gfed_proc.process_gfed_monthly(
-    years=range(2001, 2021),
-    output_format='cbf'
+# Generate CBF files from STAC catalog + user observations
+result = generate_cbf_files(
+    stac_source='./era5_output/catalog.json',
+    start_date='2020-01',
+    end_date='2020-12',
+    output_directory='./cbf_output',
+    obs_driver_file='input/AlltsObs05x05.nc',
+    land_frac_file='input/CARDAMOM-MAPS_05deg_LAND_SEA_FRAC.nc'
 )
 
-# Output: CARDAMOM-format fire emissions
+print(f"Generated {result['successful_pixels']} CBF files")
+# Output: Pixel-specific CBF files ready for CARDAMOM modeling
 ```
 
 ---
@@ -586,7 +550,7 @@ def calculate_vapor_pressure_deficit(temperature_max_kelvin, dewpoint_temperatur
 **IMPORTANT**: Do not use relative imports - this is a Python package
 ```python
 # GOOD
-from cardamom_preprocessor.atmospheric_science import calculate_vpd
+from src.atmospheric_science import calculate_vpd
 
 # AVOID
 from .atmospheric_science import calculate_vpd
@@ -677,11 +641,13 @@ MET_RENAME_MAP = {
 - `.cdsapirc` - ECMWF API credentials (in home directory)
 
 ### 9.2 Critical Source Files
-- `src/cardamom_preprocessor.py` - Main orchestrator
+- `src/stac_cli.py` - Main CLI interface
+- `src/cbf_main.py` - CBF generation orchestration
 - `src/cardamom_variables.py` - Variable registry (single source of truth)
 - `src/atmospheric_science.py` - Core scientific calculations
-- `src/ecmwf_downloader.py` - Primary data source
-- `src/config_manager.py` - Configuration system
+- `src/downloaders/ecmwf_downloader.py` - ERA5 meteorology downloader
+- `src/downloaders/noaa_downloader.py` - NOAA CO2 downloader
+- `src/downloaders/gfed_downloader.py` - GFED fire downloader
 
 ### 9.3 Reference Files
 - `matlab-migration/erens_cbf_code.py` - CBF generation reference
@@ -735,18 +701,18 @@ MET_RENAME_MAP = {
 4. Add validation in `quality_control.py`
 
 ### Task 2: Add a New Data Source
-1. Create downloader class inheriting from `BaseDownloader`
-2. Implement required methods: `download_data()`, `validate_downloaded_data()`
-3. Add to `DownloaderFactory.create_downloader()`
-4. Add configuration in `data_source_config.py`
-5. Update `CARDAMOM_VARIABLE_REGISTRY` with new variables
+1. Create downloader class in `src/downloaders/` inheriting from `downloaders.base.BaseDownloader`
+2. Implement required methods: `download_data()`, `_create_stac_item()`
+3. Add STAC metadata generation for outputs
+4. Register new CLI subcommand in `src/stac_cli.py`
+5. Update `CARDAMOM_VARIABLE_REGISTRY` in `src/cardamom_variables.py` with new variables
 
-### Task 3: Modify Processing Pipeline
-1. Understand current workflow in `cardamom_preprocessor.py`
-2. Identify relevant processor (CBFMetProcessor, DiurnalProcessor, etc.)
-3. Modify processing logic
-4. Update validation in `quality_control.py`
-5. Test with sample data
+### Task 3: Modify CBF Generation
+1. Understand current STAC-based workflow in `src/cbf_main.py`
+2. Identify which component needs modification (downloader, loader, or generator)
+3. Update relevant module (`stac_met_loader.py`, `cbf_obs_handler.py`, or `cbf_main.py`)
+4. Update validation in `quality_control.py` if needed
+5. Test with sample data and STAC catalog
 
 ### Task 4: Fix Scientific Calculation
 1. Find relevant function in `atmospheric_science.py` or `carbon_cycle.py`
@@ -773,11 +739,17 @@ conda activate cardamom-ecmwf-downloader
 
 ### Running the Preprocessor
 ```bash
-# Process global monthly data
-.venv/bin/python src/cardamom_preprocessor.py --workflow global_monthly --years 2020 --months 1-12
+# Download ERA5 meteorology
+.venv/bin/python -m src.stac_cli ecmwf --variables t2m_min,t2m_max,vpd --year 2020 --month 1 --output ./era5_output
 
-# Process CONUS diurnal fluxes
-.venv/bin/python src/cardamom_preprocessor.py --workflow conus_diurnal --years 2015-2020
+# Download NOAA CO2
+.venv/bin/python -m src.stac_cli noaa --output ./co2_output
+
+# Download GFED fire data
+.venv/bin/python -m src.stac_cli gfed --year 2020 --month 1 --output ./gfed_output
+
+# Generate CBF files from STAC catalog
+.venv/bin/python -m src.stac_cli cbf-generate --stac-api file://./era5_output/catalog.json --start 2020-01 --end 2020-12 --output ./cbf_output
 ```
 
 ### Testing
@@ -823,9 +795,9 @@ ncdump -c output_file.nc
 5. **Update Variable Registry**: If adding/modifying variables
 
 ### Error Handling Best Practices
-1. **Use RetryManager**: For network/API operations
-2. **Validate Early**: Check inputs before expensive operations
-3. **Log Context**: Use ProcessingLogger for structured logging
+1. **Validate Early**: Check inputs before expensive operations
+2. **Use Standard Logging**: Python logging module for structured logging
+3. **STAC Validation**: Leverage STAC metadata for data completeness checks
 4. **Provide Clear Messages**: Scientist-friendly error messages with context
 
 ---
@@ -868,12 +840,12 @@ ncdump -c output_file.nc
 6. Update quality control if needed
 
 ### For New Features
-1. Understand existing patterns (downloaders, processors)
-2. Identify integration points in `cardamom_preprocessor.py`
-3. Plan architecture (factory pattern, inheritance)
+1. Understand existing patterns (STAC downloaders, CBF generation)
+2. Identify integration points in STAC workflow (`stac_cli.py`, `cbf_main.py`)
+3. Plan architecture (BaseDownloader pattern, STAC metadata)
 4. Implement following scientist-friendly standards
 5. Add to variable registry if new variables
-6. Update configuration system
+6. Update STAC catalog structure if needed
 
 ---
 
@@ -894,17 +866,17 @@ ncdump -c output_file.nc
 
 ## Summary
 
-The **CARDAMOM Preprocessor** is a comprehensive, modular data orchestration system that:
+The **CARDAMOM Preprocessor** is a comprehensive, modular data preprocessing system that:
 
-✅ **Downloads** climate and carbon data from ECMWF, NOAA, GFED, MODIS
-✅ **Processes** raw data with scientific rigor (VPD, radiation, carbon fluxes)
-✅ **Downscales** monthly fluxes to diurnal (hourly) resolution
-✅ **Generates** CBF-compatible NetCDF files for CARDAMOM ecosystem modeling
-✅ **Validates** data quality with extensive QC framework
+✅ **Downloads** climate and carbon data from ECMWF (ERA5), NOAA (CO2), GFED (fire)
+✅ **Catalogs** data using STAC metadata for discoverability and validation
+✅ **Processes** meteorological data with scientific rigor (VPD, radiation calculations)
+✅ **Generates** pixel-specific CBF files for CARDAMOM ecosystem modeling
+✅ **Validates** data completeness with STAC-based checks
 ✅ **Maintains** MATLAB compatibility for scientific consistency
 
-**Architecture**: 31 Python modules organized into downloaders, processors, scientific calculators, and infrastructure utilities, all orchestrated by `CARDAMOMProcessor`.
+**Architecture**: STAC-based workflow with modular downloaders, meteorology discovery, observational data handling, and CBF generation.
 
-**Philosophy**: Scientist-friendly code that prioritizes clarity, scientific accuracy, and accessibility over Python cleverness.
+**Philosophy**: Scientist-friendly code that prioritizes clarity, scientific accuracy, and accessibility over Python cleverness. Focus on monthly-only workflow (no diurnal processing).
 
-**End Goal**: Create `AllMet05x05_LFmasked.nc` and related files for `erens_cbf_code.py` to generate site-level CBF files for CARDAMOM carbon cycle analysis.
+**End Goal**: Generate pixel-specific CBF files (`site{lat}_{lon}_ID{exp}exp0.cbf.nc`) for CARDAMOM carbon cycle analysis using STAC-discovered meteorology and user-provided observational constraints.
