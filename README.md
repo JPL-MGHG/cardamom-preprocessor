@@ -19,47 +19,32 @@ The CARDAMOM Preprocessor transforms raw Earth observation data into CARDAMOM-re
 
 The system is organized into modular components across 8 development phases:
 
-### **Phase 1: Core Framework** ✅
-- Main orchestration with CARDAMOMProcessor class
-- Unified configuration system with environment variable support
-- Complete NetCDF infrastructure with MATLAB equivalence
-- Coordinate systems and scientific utilities
-- Error handling and recovery with resumable processing
+### **Phase 1: STAC-Based Workflow** ✅
+- STAC catalog management for data discovery and metadata
+- Modular downloader package (`src/downloaders/`) with pluggable architecture
+- Meteorology loading from STAC catalogs with completeness validation
+- CBF generation orchestration using STAC + user-provided data
+- Graceful degradation for missing observational data (NaN-fill)
 - Time coordinate standardization for CBF compatibility
 
-### **Phase 2: Data Downloaders** ✅
-- ECMWF meteorological data downloader (ERA5 via CDS API)
-- NOAA CO₂ concentration downloader (migrated to HTTPS from deprecated FTP)
-- GFED fire emissions downloader
-- MODIS land-sea mask generator
+### **Phase 2: Data Downloaders Package** ✅
+- **Modular downloaders** (`src/downloaders/`)
+  - `ECMWFDownloader`: ERA5 meteorological data via CDS API
+  - `NOAADownloader`: CO₂ concentrations (migrated to HTTPS from deprecated FTP)
+  - `GFEDDownloader`: Fire emissions and burned area data
+  - `BaseDownloader`: Abstract base class for consistent interface
+- **STAC Integration**: Each downloader generates STAC metadata for outputs
+- **Incremental Updates**: Add new data without rebuilding catalogs
 
-### **Phase 3: GFED Processing** ✅
-- GFED burned area and fire emissions processing
-- Gap-filling for missing years (2017+)
-- Multi-resolution support (0.25°, 0.5°, GeosChem)
-
-### **Phase 4: Diurnal Flux Processing** ✅
-- CONUS carbon flux downscaling (monthly to hourly)
-- CMS flux integration with meteorological drivers
-- GeosChem-compatible output generation
-
-### **Phase 5: NetCDF System** ✅ *Consolidated into Phase 1*
-- CARDAMOM-compliant NetCDF file generation
-- Template-based output with proper metadata
-
-### **Phase 6: CBF Input Generation** ✅
-- Separated download/processing workflow for resilient data handling
-- CBF (CARDAMOM Binary Format) meteorological driver file generation
-- Compatible with `erens_cbf_code.py` input requirements
-- 80% coverage from ERA5 data (8/10 variables)
+### **Phase 3: CBF File Generation** ✅
+- STAC-based meteorology discovery and loading
+- User-provided observational constraints with NaN-filling
+- Pixel-specific CBF file generation
+- Compatible with `matlab-migration/erens_cbf_code.py`
 - Variable-aware processing using centralized configuration
 - Automated unit conversions and spatial interpolation
 
-### **Phase 7: Enhanced CLI** 🚧 *Planned*
-- Extended command-line interface
-- Interactive configuration and validation
-
-### **Phase 8: Scientific Functions Library** ✅
+### **Phase 4: Scientific Functions Library** ✅
 - Atmospheric science calculations (VPD, humidity, radiation)
 - Statistical utilities (temporal aggregation, spatial interpolation)
 - Physical constants and unit conversions
@@ -89,33 +74,23 @@ pip install -e .
 ### Basic Usage
 
 ```python
-# Import core functionality
-from src.cardamom_preprocessor import CARDAMOMProcessor
-from src.config_manager import CardamomConfig
-from src.netcdf_infrastructure import CARDAMOMNetCDFWriter
-from src.coordinate_systems import StandardGrids
+# Import STAC-based workflow components
+from src.stac_cli import main as stac_cli_main
+from src.cbf_main import generate_cbf_files
+from src.stac_met_loader import load_met_data_from_stac
+from src.cbf_obs_handler import load_observational_data_with_nan_fill
 
-# Phase 2: Data downloaders
-from src.ecmwf_downloader import ECMWFDownloader
-from src.noaa_downloader import NOAADownloader
-from src.gfed_downloader import GFEDDownloader
+# Import modular downloaders
+from src.downloaders.ecmwf_downloader import ECMWFDownloader
+from src.downloaders.noaa_downloader import NOAADownloader
+from src.downloaders.gfed_downloader import GFEDDownloader
 
-# Phase 3: GFED processing
-from src.gfed_processor import GFEDProcessor
-
-# Phase 4: Diurnal processing
-from src.diurnal_processor import DiurnalProcessor
-
-# Phase 6: CBF input generation
-from src.cbf_met_processor import CBFMetProcessor
-
-# Phase 8: Scientific functions and variable configuration
+# Import scientific utilities
 from src.atmospheric_science import (
     saturation_pressure_water_matlab,
     calculate_vapor_pressure_deficit_matlab
 )
 from src.units_constants import PhysicalConstants
-from src.validation import validate_temperature_range_extended
 from src.cardamom_variables import (
     get_variable_config,
     get_interpolation_method,
@@ -123,93 +98,72 @@ from src.cardamom_variables import (
     CARDAMOM_VARIABLE_REGISTRY
 )
 
-# Example: Complete workflow using Phase 1 orchestration
-processor = CARDAMOMProcessor()
-
-# Process global monthly data with error recovery and progress tracking
-result = processor.process_batch(
-    workflow_type='global_monthly',
-    years=[2020, 2021],
-    months=[1, 2, 3],
-    show_progress=True
-)
-print(f"Success: {result['successful_combinations']}")
-
-# Process CONUS diurnal data (integrates with Phase 4)
-diurnal_result = processor.process_conus_diurnal(
-    years=[2020],
-    months=[6, 7, 8]
-)
-print(f"Diurnal processing: {diurnal_result['status']}")
-
-# Example: Configuration management
-config = CardamomConfig.create_template_config('minimal')
-processor = CARDAMOMProcessor(config_file=config)
-
-# Example: CBF meteorological processing (Phase 6)
-from src.ecmwf_downloader import ECMWFDownloader
-from src.cbf_met_processor import CBFMetProcessor
-from src.cardamom_variables import get_variables_by_source, get_essential_variables
-
-# Separated workflow for resilient processing
-downloader = ECMWFDownloader()
-
-# View available ERA5 variables with centralized configuration
-era5_vars = get_variables_by_source('era5')
-print(f"Available ERA5 variables: {era5_vars}")
-
-# Step 1: Download ERA5 meteorological data
-download_result = downloader.download_cbf_met_variables(
-    variables=['2m_temperature', 'total_precipitation', 'surface_solar_radiation_downwards'],
-    years=[2020], months=[1, 2, 3],
-    download_dir='./era5_downloads'
+# Example 1: Download meteorology and create STAC catalog
+downloader = ECMWFDownloader(output_directory='./era5_output')
+downloader.download_data(
+    variables=['t2m_min', 't2m_max', 'vpd', 'ssrd'],
+    year=2020,
+    month=1
 )
 
-# Step 2: Process downloaded files to CBF format (independent of download)
-# Variable handling now uses centralized configuration system
-processor = CBFMetProcessor()
-cbf_file = processor.process_downloaded_files_to_cbf_met(
-    input_dir='./era5_downloads',
-    output_filename='AllMet05x05_LFmasked.nc',  # Compatible with erens_cbf_code.py
-    land_fraction_file='land_fraction.nc'  # Optional land masking
+# Example 2: Generate CBF files from STAC catalog + user obs data
+result = generate_cbf_files(
+    stac_source='./era5_output/catalog.json',  # STAC catalog from downloader
+    start_date='2020-01',
+    end_date='2020-12',
+    output_directory='./cbf_output',
+    obs_driver_file='input/AlltsObs05x05.nc',  # User-provided observations
+    land_frac_file='input/CARDAMOM-MAPS_05deg_LAND_SEA_FRAC.nc'
 )
-print(f"CBF file generated: {cbf_file}")  # 8/10 variables from ERA5 (80% coverage)
+print(f"Generated {result['successful_pixels']} CBF files")
 
-# Example: Use scientific functions
-import numpy as np
-temp_max_c = np.array([25, 30, 35])  # °C
-dewpoint_c = np.array([15, 18, 20])  # °C
-vpd_hpa = calculate_vapor_pressure_deficit_matlab(temp_max_c, dewpoint_c)
-print(f"VPD: {vpd_hpa} hPa")  # Expected: [11.7, 19.4, 29.8] hPa
+# Example 3: Load meteorology from STAC catalog
+met_data = load_met_data_from_stac(
+    stac_source='./era5_output/catalog.json',
+    start_date='2020-01',
+    end_date='2020-12'
+)
+print(f"Loaded variables: {list(met_data.data_vars)}")
 ```
 
 ### Command Line Interface
 
 ```bash
-# CBF meteorological processing (Phase 6)
-python src/cbf_cli.py list-variables           # List supported CBF variables
-python src/cbf_cli.py process-met ./downloads/ --output AllMet05x05_LFmasked.nc
+# STAC-based CLI for downloaders and CBF generation
+.venv/bin/python -m src.stac_cli --help
 
-# Download CARDAMOM meteorological drivers (via Python module)
-python -m src.ecmwf_downloader cardamom-monthly -y 2020 -m 1-3
+# Download ERA5 meteorology
+.venv/bin/python -m src.stac_cli ecmwf \
+    --variables t2m_min,t2m_max,vpd,ssrd,strd \
+    --year 2020 --month 1 \
+    --output ./era5_output
 
-# Run complete MAAP workflow
-./.maap/run.sh cardamom-monthly ./output 2020 1-12
+# Download NOAA CO2
+.venv/bin/python -m src.stac_cli noaa \
+    --year 2020 --month 1 \
+    --output ./co2_output
+
+# Download GFED fire data
+.venv/bin/python -m src.stac_cli gfed \
+    --year 2020 --month 1 \
+    --output ./gfed_output
+
+# Generate CBF files from STAC catalog
+.venv/bin/python -m src.stac_cli cbf-generate \
+    --stac-api file://./era5_output/catalog.json \
+    --start 2020-01 --end 2020-12 \
+    --output ./cbf_output
 
 # Run tests
 .venv/bin/python -m pytest tests/ -v
-.venv/bin/python test_cbf_met.py                     # Test CBF processing
 ```
 
 ## 📚 Documentation
 
 ### Component Documentation
-- **[Phase 1 Core Framework](plans/README_PHASE1.md)** - Main orchestration and infrastructure ✅
-- **[Phase 2 Downloaders](plans/README_PHASE2.md)** - Multi-source data acquisition (ECMWF, NOAA, GFED)
-- **[Phase 3 GFED](plans/README_PHASE3.md)** - Fire emissions processing
-- **[Phase 4 Diurnal](plans/README_PHASE4.md)** - Hourly flux downscaling
-- **[Phase 6 CBF Input Generation](plans/phase6_cbf_input_pipeline.md)** - CBF meteorological drivers ✅
-- **[Phase 8 Scientific Functions](plans/README_PHASE8.md)** - Utility function library and variable registry ✅
+- **[STAC Implementation Summary](plans/STAC_IMPLEMENTATION_SUMMARY.md)** - STAC-based architecture overview
+- **[CBF Implementation Summary](plans/CBF_IMPLEMENTATION_SUMMARY.md)** - CBF generation workflow
+- **[Agent Onboarding Guide](plans/AGENT_ONBOARDING.md)** - Comprehensive onboarding for new team members
 
 ### Development Guidelines
 - **[CLAUDE.md](CLAUDE.md)** - Scientist-friendly coding standards and best practices
@@ -311,16 +265,16 @@ conda activate cardamom-ecmwf-downloader
 
 ### Phase Implementation Status
 
-- ✅ **Phase 1**: Core Framework *(CARDAMOMProcessor orchestration, time standardization)*
-- ✅ **Phase 2**: Data Downloaders *(ECMWF ERA5, NOAA CO₂ via HTTPS, GFED, MODIS)*
-- ✅ **Phase 3**: GFED Processing *(Gap-filling and multi-resolution)*
-- ✅ **Phase 4**: Diurnal Flux Processing *(CONUS hourly downscaling)*
-- ✅ **Phase 6**: CBF Input Generation *(Separated workflow, variable-aware processing)*
-- ✅ **Phase 8**: Scientific Functions Library *(Atmospheric utilities, centralized variable registry)*
-- 🚧 **Phase 7**: Enhanced CLI *(planned)*
+- ✅ **Phase 1**: STAC-Based Workflow *(STAC catalog management, meteorology discovery)*
+- ✅ **Phase 2**: Data Downloaders *(ECMWF ERA5, NOAA CO₂ via HTTPS, GFED)*
+- ✅ **Phase 3**: CBF Input Generation *(STAC-based workflow, variable-aware processing)*
+- ✅ **Phase 4**: Scientific Functions Library *(Atmospheric utilities, centralized variable registry)*
+- 🚧 **Phase 5**: Enhanced CLI *(planned)*
 
-### Recent Improvements (October 2025)
+### Recent Improvements (December 2025)
 
+- **Codebase Cleanup**: Removed 17 obsolete files (diurnal processing, monolithic workflow, old downloaders)
+- **STAC-Based Architecture**: Streamlined codebase to focus on STAC catalog workflow for data discovery
 - **Centralized Variable Configuration**: New `cardamom_variables.py` module eliminates scattered variable definitions
 - **NOAA HTTPS Migration**: Updated from deprecated FTP to modern HTTPS protocol with improved error handling
 - **Simplified Processing**: Reduced ECMWF downloader complexity by 1,400+ lines through configuration centralization
