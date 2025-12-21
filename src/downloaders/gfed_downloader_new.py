@@ -248,6 +248,117 @@ class GFEDDownloader(BaseDownloader):
 
         logger.debug(f"Validated temporal parameters: {year}-{month:02d}")
 
+    def _extract_gfed_variables_from_hdf5(
+        self,
+        hdf5_file: Path,
+        year: int,
+        month: int,
+    ) -> Dict[str, Any]:
+        """
+        Extract burned area and fire CO2 emissions from GFED HDF5 file.
+
+        HDF5 Structure (year-dependent):
+        - 2001-2016 files: /burned_area/{month:02d}/burned_fraction + /emissions/{month:02d}/C
+        - 2017-2025 beta files: /emissions/{month:02d}/C only (NO burned_area group!)
+
+        Args:
+            hdf5_file (Path): Path to GFED HDF5 file
+            year (int): Year being processed
+            month (int): Month being processed (1-12)
+
+        Returns:
+            Dict[str, Any]: Dictionary with keys:
+                - 'burned_area': 2D array [lat, lon] in fraction (None if not available)
+                - 'fire_emissions': 2D array [lat, lon] in gC/m²/month
+                - 'has_burned_area': bool indicating if BA data was directly available
+                - 'latitude': 1D array of latitude coordinates
+                - 'longitude': 1D array of longitude coordinates
+
+        Raises:
+            FileNotFoundError: If HDF5 file doesn't exist
+            KeyError: If expected data paths not found
+        """
+
+        if not hdf5_file.exists():
+            raise FileNotFoundError(f"HDF5 file not found: {hdf5_file}")
+
+        logger.info(f"Extracting data from {hdf5_file.name} for month {month:02d}")
+
+        # Month as zero-padded string (e.g., '01', '02', ..., '12')
+        month_str = f"{month:02d}"
+
+        with h5py.File(hdf5_file, 'r') as hf:
+            # Extract coordinate arrays (present in all files)
+            # GFED provides 2D meshgrid coordinates, extract as 1D vectors
+            lat_2d = np.array(hf['lat'])
+            lon_2d = np.array(hf['lon'])
+
+            # Extract 1D coordinate vectors from meshgrid
+            latitude = lat_2d[:, 0]  # Latitude varies along first dimension
+            longitude = lon_2d[0, :]  # Longitude varies along second dimension
+
+            logger.debug(
+                f"Loaded coordinates: lat=({latitude.shape[0]},) "
+                f"[{latitude.min():.2f}, {latitude.max():.2f}], "
+                f"lon=({longitude.shape[0]},) [{longitude.min():.2f}, {longitude.max():.2f}]"
+            )
+
+            # ALWAYS extract fire emissions (available in all years)
+            emissions_path = f'emissions/{month_str}/C'
+            try:
+                fire_emissions = np.array(hf[emissions_path])
+                logger.info(f"Extracted fire emissions from {emissions_path}: shape={fire_emissions.shape}")
+            except KeyError:
+                raise KeyError(
+                    f"Fire emissions not found at path: {emissions_path}. "
+                    f"Available groups in HDF5: {list(hf.keys())}"
+                )
+
+            # Extract burned area (only available for 2001-2016)
+            burned_area = None
+            has_burned_area = False
+
+            if year <= 2016:
+                burned_area_path = f'burned_area/{month_str}/burned_fraction'
+                try:
+                    burned_area = np.array(hf[burned_area_path])
+                    has_burned_area = True
+                    logger.info(
+                        f"Extracted burned area from {burned_area_path}: shape={burned_area.shape}"
+                    )
+                except KeyError:
+                    logger.warning(
+                        f"Burned area not found at {burned_area_path} for year {year}. "
+                        f"This is unexpected for pre-2017 files. Available groups: {list(hf.keys())}"
+                    )
+            else:
+                logger.info(
+                    f"Year {year} is post-2016 beta file. Burned area will be reconstructed "
+                    f"from climatology (not directly available in HDF5)."
+                )
+
+        # Validate data shapes
+        expected_shape = (720, 1440)  # 0.25° global resolution
+        if fire_emissions.shape != expected_shape:
+            logger.warning(
+                f"Unexpected fire emissions shape: {fire_emissions.shape}. "
+                f"Expected: {expected_shape}"
+            )
+
+        if burned_area is not None and burned_area.shape != expected_shape:
+            logger.warning(
+                f"Unexpected burned area shape: {burned_area.shape}. "
+                f"Expected: {expected_shape}"
+            )
+
+        return {
+            'burned_area': burned_area,
+            'fire_emissions': fire_emissions,
+            'has_burned_area': has_burned_area,
+            'latitude': latitude,
+            'longitude': longitude,
+        }
+
     def download_and_process(
         self,
         year: int,
@@ -295,11 +406,19 @@ class GFEDDownloader(BaseDownloader):
             raise
 
         # Step 2-3: Extract variables from HDF5
-        # TODO: Implement _extract_gfed_variables_from_hdf5()
-        # variables = self._extract_gfed_variables_from_hdf5(gfed_file, year, month)
+        variables = self._extract_gfed_variables_from_hdf5(gfed_file, year, month)
+
+        logger.info(
+            f"Extracted variables: fire_emissions={variables['fire_emissions'].shape}, "
+            f"burned_area={'available' if variables['has_burned_area'] else 'missing (will reconstruct)'}"
+        )
 
         # Step 4-7: Preprocessing and output
-        # TODO: Implement preprocessing pipeline
+        # TODO: Implement land-sea masking
+        # TODO: Implement regridding
+        # TODO: Implement unit conversion
+        # TODO: Implement climatological gap-filling for post-2016 BA
+        # TODO: Write NetCDF + STAC metadata
 
         # Placeholder return
         return {
@@ -307,5 +426,5 @@ class GFEDDownloader(BaseDownloader):
             'stac_items': [],
             'collection_ids': [],
             'success': False,
-            'message': 'Implementation in progress'
+            'message': 'HDF5 extraction complete, preprocessing pipeline in progress'
         }
