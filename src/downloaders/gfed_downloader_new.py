@@ -448,6 +448,239 @@ class GFEDDownloader(BaseDownloader):
 
         return fire_emissions_daily
 
+    def _reconstruct_burned_area_using_climatology(
+        self,
+        burned_area_2001_2016: np.ndarray,
+        fire_emissions_2001_2016: np.ndarray,
+        fire_emissions_post_2016: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Reconstruct post-2016 burned area using climatological BA/FireC ratio.
+
+        Implements MATLAB logic from CARDAMOM_MAPS_READ_GFED_DEC25.m lines 61-72:
+        For each month of year, calculate the ratio of total BA to total FireC
+        across 2001-2016, then apply to post-2016 emissions.
+
+        Args:
+            burned_area_2001_2016 (np.ndarray): Burned area 2001-2016, shape (lat, lon, 192)
+                where 192 = 16 years × 12 months
+            fire_emissions_2001_2016 (np.ndarray): Fire emissions 2001-2016, shape (lat, lon, 192)
+            fire_emissions_post_2016 (np.ndarray): Fire emissions 2017+, shape (lat, lon, n_months)
+
+        Returns:
+            np.ndarray: Reconstructed burned area for post-2016, shape (lat, lon, n_months)
+
+        Example:
+            For January 2024:
+            - Get all Jan data from 2001-2016: indices 0, 12, 24, ..., 180 (16 values)
+            - Sum BA and FireC separately across those 16 years
+            - Ratio = sum(BA_Jan) / sum(FireC_Jan)
+            - BA_Jan2024 = ratio × FireC_Jan2024
+        """
+
+        n_post_2016_months = fire_emissions_post_2016.shape[2]
+        reconstructed_ba = np.zeros_like(fire_emissions_post_2016)
+
+        logger.info(
+            f"Reconstructing burned area for {n_post_2016_months} post-2016 months "
+            f"using 2001-2016 climatology"
+        )
+
+        # For each month of the year (Jan, Feb, ..., Dec)
+        for month_idx in range(12):
+            # Get all occurrences of this month in 2001-2016 (e.g., all Januaries)
+            # Indices: month_idx, month_idx+12, month_idx+24, ..., month_idx+180
+            historical_indices = np.arange(month_idx, 192, 12)
+
+            # Sum BA and FireC across all years for this specific month
+            ba_sum = np.sum(burned_area_2001_2016[:, :, historical_indices], axis=2)
+            firec_sum = np.sum(fire_emissions_2001_2016[:, :, historical_indices], axis=2)
+
+            # Calculate climatological ratio: BA/FireC
+            # Avoid division by zero: where FireC=0, set ratio to 0
+            with np.errstate(divide='ignore', invalid='ignore'):
+                ratio = ba_sum / firec_sum
+
+            # Set ratio to 0 where FireC sum was zero (no fires in reference period)
+            ratio[~np.isfinite(ratio)] = 0.0
+
+            # Apply ratio to all post-2016 occurrences of this month
+            for post_month_idx in range(month_idx, n_post_2016_months, 12):
+                reconstructed_ba[:, :, post_month_idx] = (
+                    ratio * fire_emissions_post_2016[:, :, post_month_idx]
+                )
+
+        # Replace NaN with 0 (MATLAB: nan2zero)
+        reconstructed_ba = np.nan_to_num(reconstructed_ba, nan=0.0)
+
+        logger.info(
+            f"Reconstructed BA range: [{reconstructed_ba.min():.6f}, {reconstructed_ba.max():.6f}], "
+            f"NaN fraction: {np.isnan(reconstructed_ba).sum() / reconstructed_ba.size:.6f}"
+        )
+
+        return reconstructed_ba
+
+    def download_and_process_batch(
+        self,
+        start_year: int = 2001,
+        end_year: int = 2024,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """
+        Download and process GFED fire data for multiple years (batch mode).
+
+        This method replicates the MATLAB workflow from CARDAMOM_MAPS_READ_GFED_DEC25.m:
+        1. Download all yearly files (2001-2024)
+        2. Extract burned area (2001-2016) and fire emissions (all years)
+        3. Apply land-sea masking
+        4. Regrid to 0.5° resolution
+        5. Reconstruct post-2016 burned area using climatology
+        6. Convert fire emissions to daily rates
+        7. Write NetCDF files with STAC metadata
+
+        Args:
+            start_year (int): First year to process (default: 2001)
+            end_year (int): Last year to process (default: 2024)
+            **kwargs: Additional arguments
+
+        Returns:
+            Dict[str, Any]: Results dictionary with keys:
+                - 'output_files': List of generated NetCDF paths
+                - 'stac_items': List of STAC Item objects
+                - 'collection_ids': List of STAC Collection IDs
+                - 'success': bool
+        """
+
+        logger.info(f"Starting GFED batch processing for years {start_year}-{end_year}")
+
+        # Validate year range
+        if start_year < 2001 or end_year > 2025:
+            raise ValueError(f"Year range must be within 2001-2025. Got: {start_year}-{end_year}")
+
+        # Calculate total months
+        n_years = end_year - start_year + 1
+        n_months = n_years * 12
+
+        # Initialize arrays for all data at 0.25° resolution
+        burned_area_025 = np.full((720, 1440, n_months), np.nan)
+        fire_emissions_025 = np.full((720, 1440, n_months), np.nan)
+
+        # Step 1-2: Download and extract data for all years
+        month_idx = 0
+        for year in range(start_year, end_year + 1):
+            logger.info(f"Processing year {year}...")
+
+            # Download yearly file
+            try:
+                gfed_file = self._download_gfed_yearly_file_sftp(year)
+            except (ConnectionError, FileNotFoundError) as e:
+                logger.error(f"Failed to download data for {year}: {e}")
+                raise
+
+            # Extract all 12 months for this year
+            for month in range(1, 13):
+                variables = self._extract_gfed_variables_from_hdf5(gfed_file, year, month)
+
+                # Store fire emissions (always available)
+                fire_emissions_025[:, :, month_idx] = variables['fire_emissions']
+
+                # Store burned area (only available for 2001-2016)
+                if variables['has_burned_area']:
+                    burned_area_025[:, :, month_idx] = variables['burned_area']
+
+                month_idx += 1
+
+                # Store coordinates from first month
+                if month == 1 and year == start_year:
+                    latitude_025 = variables['latitude']
+                    longitude_025 = variables['longitude']
+
+        logger.info(f"Extracted data for {n_months} months from {start_year} to {end_year}")
+
+        # Step 3: Apply land-sea masking
+        # TODO: Need 0.25° land-sea mask
+        # For now, skip this step (add TODO comment)
+        logger.warning(
+            "Land-sea masking skipped - need 0.25° resolution mask. "
+            "Current implementation assumes GFED data already has NaN for ocean."
+        )
+
+        # Step 4: Regrid to 0.5° resolution
+        logger.info("Regridding burned area and fire emissions to 0.5° resolution...")
+        burned_area_05_list = []
+        fire_emissions_05_list = []
+
+        for month_idx in range(n_months):
+            # Regrid burned area (skip if all NaN for post-2016)
+            if not np.all(np.isnan(burned_area_025[:, :, month_idx])):
+                ba_regridded = self._regrid_025_to_05_with_nan_handling(
+                    burned_area_025[:, :, month_idx]
+                )
+            else:
+                ba_regridded = np.full((360, 720), np.nan)
+
+            burned_area_05_list.append(ba_regridded)
+
+            # Regrid fire emissions
+            fe_regridded = self._regrid_025_to_05_with_nan_handling(
+                fire_emissions_025[:, :, month_idx]
+            )
+            fire_emissions_05_list.append(fe_regridded)
+
+        # Stack into 3D arrays
+        burned_area_05 = np.stack(burned_area_05_list, axis=2)
+        fire_emissions_05 = np.stack(fire_emissions_05_list, axis=2)
+
+        logger.info(f"Regridded to shape: {burned_area_05.shape}")
+
+        # Step 5: Reconstruct post-2016 burned area using climatology
+        if end_year > 2016:
+            logger.info("Reconstructing post-2016 burned area using climatological method...")
+
+            # Split into reference period (2001-2016) and post-2016
+            idx_2016_end = (2016 - start_year + 1) * 12  # 192 if start_year=2001
+
+            ba_reference = burned_area_05[:, :, :idx_2016_end]
+            fe_reference = fire_emissions_05[:, :, :idx_2016_end]
+            fe_post_2016 = fire_emissions_05[:, :, idx_2016_end:]
+
+            # Reconstruct burned area for post-2016
+            ba_reconstructed = self._reconstruct_burned_area_using_climatology(
+                ba_reference, fe_reference, fe_post_2016
+            )
+
+            # Replace post-2016 burned area with reconstructed values
+            burned_area_05[:, :, idx_2016_end:] = ba_reconstructed
+
+            logger.info("Post-2016 burned area reconstruction complete")
+
+        # Step 6: Convert fire emissions to daily rates
+        logger.info("Converting fire emissions from monthly to daily rates...")
+        fire_emissions_daily_05 = self._convert_fire_emissions_monthly_to_daily(
+            fire_emissions_05
+        )
+
+        # Step 7: Write NetCDF + STAC metadata
+        # TODO: Implement NetCDF writing and STAC metadata generation
+
+        logger.info("GFED batch processing complete")
+
+        return {
+            'output_files': [],
+            'stac_items': [],
+            'collection_ids': [],
+            'success': True,
+            'message': 'Batch processing complete. NetCDF writing not yet implemented.',
+            'data': {
+                'burned_area': burned_area_05,
+                'fire_emissions_daily': fire_emissions_daily_05,
+                'latitude': latitude_025[::2],  # Downsample coordinates
+                'longitude': longitude_025[::2],
+                'start_year': start_year,
+                'end_year': end_year,
+            }
+        }
+
     def download_and_process(
         self,
         year: int,
@@ -457,14 +690,11 @@ class GFEDDownloader(BaseDownloader):
         """
         Download and process GFED fire data for a specific month.
 
-        Workflow:
-        1. Download annual GFED HDF5 file via SFTP
-        2. Extract fire emissions (always available)
-        3. Extract burned area (2001-2016) or reconstruct (2017-2025)
-        4. Apply land-sea masking
-        5. Regrid to CARDAMOM 0.5° resolution
-        6. Convert emissions units (monthly → daily)
-        7. Write NetCDF files with STAC metadata
+        NOTE: For GFED data, batch processing is recommended to enable proper
+        climatological gap-filling. Use download_and_process_batch() instead.
+
+        This single-month method is provided for compatibility but will not
+        perform climatological gap-filling for post-2016 data.
 
         Args:
             year (int): Year to process
@@ -472,54 +702,25 @@ class GFEDDownloader(BaseDownloader):
             **kwargs: Additional arguments
 
         Returns:
-            Dict[str, Any]: Results dictionary with keys:
-                - 'output_files': List of generated NetCDF paths
-                - 'stac_items': List of STAC Item objects
-                - 'collection_ids': List of STAC Collection IDs
-                - 'success': bool
-
-        Raises:
-            ValueError: If parameters are invalid
-            ConnectionError: If SFTP download fails
+            Dict[str, Any]: Results dictionary
         """
+
+        logger.warning(
+            "Single-month GFED processing does not support climatological gap-filling. "
+            "Use download_and_process_batch() for complete MATLAB-compatible processing."
+        )
 
         self.validate_temporal_parameters(year, month)
 
-        logger.info(f"Starting GFED download and processing for {year}-{month:02d}")
-
-        # Step 1: Download yearly GFED file via SFTP
-        try:
-            gfed_file = self._download_gfed_yearly_file_sftp(year)
-        except (ConnectionError, FileNotFoundError) as e:
-            logger.error(f"Cannot proceed without GFED data: {e}")
-            raise
-
-        # Step 2-3: Extract variables from HDF5
+        # Download and extract
+        gfed_file = self._download_gfed_yearly_file_sftp(year)
         variables = self._extract_gfed_variables_from_hdf5(gfed_file, year, month)
 
-        logger.info(
-            f"Extracted variables: fire_emissions={variables['fire_emissions'].shape}, "
-            f"burned_area={'available' if variables['has_burned_area'] else 'missing (will reconstruct)'}"
-        )
-
-        # Step 4-7: Preprocessing and output
-        # TODO: Implement land-sea masking
-        #   BLOCKER: Need 0.25° land-sea fraction mask
-        #   MATLAB calls: loadlandseamask(0.25) but function not found
-        #   Available: CARDAMOM-MAPS_05deg_LAND_SEA_FRAC.nc (0.5° only)
-        #   Question: Should we upsample 0.5° → 0.25°, or is there a 0.25° mask file?
-
-        # TODO: Implement regridding (0.25° → 0.5° with NaN-aware averaging)
-        # TODO: Implement unit conversion (fire emissions: monthly → daily)
-        # TODO: Implement climatological gap-filling for post-2016 BA
-        #   Note: Requires batch processing 2001-2016 to compute ratios
-        # TODO: Write NetCDF + STAC metadata
-
-        # Placeholder return
         return {
             'output_files': [],
             'stac_items': [],
             'collection_ids': [],
             'success': False,
-            'message': 'HDF5 extraction complete, preprocessing pipeline in progress'
+            'message': 'Single-month mode not fully implemented. Use download_and_process_batch().',
+            'data': variables,
         }
