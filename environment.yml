@@ -20,3 +20,4 @@ dependencies:
     # Additional utilities
     - boto3
     - requests
+    - paramiko>=3.0.0  # For SFTP support (GFED downloader)
