@@ -359,6 +359,95 @@ class GFEDDownloader(BaseDownloader):
             'longitude': longitude,
         }
 
+    def _regrid_025_to_05_with_nan_handling(
+        self,
+        data_025: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Regrid from 0.25° to 0.5° resolution with NaN-aware averaging.
+
+        Implements MATLAB logic from CARDAMOM_MAPS_READ_GFED_DEC25.m lines 32-45:
+        - Sum values from 2x2 blocks, treating NaN as zero
+        - Count non-NaN cells in each block
+        - Divide sum by count to get mean (preserves NaN for all-NaN blocks)
+
+        Args:
+            data_025 (np.ndarray): Input data at 0.25° resolution (720, 1440)
+
+        Returns:
+            np.ndarray: Regridded data at 0.5° resolution (360, 720)
+        """
+
+        if data_025.shape != (720, 1440):
+            raise ValueError(
+                f"Expected input shape (720, 1440) for 0.25° data, got {data_025.shape}"
+            )
+
+        # Initialize output arrays (0.5° resolution = half the dimensions)
+        output_shape = (360, 720)
+        sum_array = np.zeros(output_shape)
+        count_array = np.zeros(output_shape)
+
+        # Sample every 2nd pixel starting from different offsets to cover all 2x2 blocks
+        for row_offset in range(2):
+            for col_offset in range(2):
+                # Extract subset with stride 2
+                subset = data_025[row_offset::2, col_offset::2]
+
+                # Ensure subset matches output shape (should always be true for 2x2 downsampling)
+                if subset.shape != output_shape:
+                    # Handle edge case where dimensions don't divide evenly
+                    subset = subset[:output_shape[0], :output_shape[1]]
+
+                # Add non-NaN values to sum (NaN becomes 0)
+                sum_array += np.nan_to_num(subset, nan=0.0)
+
+                # Count non-NaN cells
+                count_array += (~np.isnan(subset)).astype(float)
+
+        # Calculate mean: sum / count
+        # Where count=0 (all NaN), result will be inf, then set to NaN
+        with np.errstate(divide='ignore', invalid='ignore'):
+            regridded = sum_array / count_array
+
+        # Set all-NaN blocks back to NaN
+        regridded[count_array == 0] = np.nan
+
+        logger.debug(
+            f"Regridded from {data_025.shape} to {regridded.shape}. "
+            f"NaN fraction: {np.isnan(regridded).sum() / regridded.size:.3f}"
+        )
+
+        return regridded
+
+    def _convert_fire_emissions_monthly_to_daily(
+        self,
+        fire_emissions_monthly: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Convert fire emissions from monthly totals to daily rates.
+
+        Implements MATLAB conversion from line 45:
+        GFED.FireC = GFED.FireC * 12/365.25
+
+        Args:
+            fire_emissions_monthly (np.ndarray): Monthly emissions in gC/m²/month
+
+        Returns:
+            np.ndarray: Daily emissions in gC/m²/day
+        """
+
+        conversion_factor = 12.0 / 365.25
+        fire_emissions_daily = fire_emissions_monthly * conversion_factor
+
+        logger.debug(
+            f"Converted fire emissions: monthly range [{fire_emissions_monthly.min():.3f}, "
+            f"{fire_emissions_monthly.max():.3f}] → "
+            f"daily range [{fire_emissions_daily.min():.3f}, {fire_emissions_daily.max():.3f}] gC/m²/day"
+        )
+
+        return fire_emissions_daily
+
     def download_and_process(
         self,
         year: int,
@@ -415,9 +504,15 @@ class GFEDDownloader(BaseDownloader):
 
         # Step 4-7: Preprocessing and output
         # TODO: Implement land-sea masking
-        # TODO: Implement regridding
-        # TODO: Implement unit conversion
+        #   BLOCKER: Need 0.25° land-sea fraction mask
+        #   MATLAB calls: loadlandseamask(0.25) but function not found
+        #   Available: CARDAMOM-MAPS_05deg_LAND_SEA_FRAC.nc (0.5° only)
+        #   Question: Should we upsample 0.5° → 0.25°, or is there a 0.25° mask file?
+
+        # TODO: Implement regridding (0.25° → 0.5° with NaN-aware averaging)
+        # TODO: Implement unit conversion (fire emissions: monthly → daily)
         # TODO: Implement climatological gap-filling for post-2016 BA
+        #   Note: Requires batch processing 2001-2016 to compute ratios
         # TODO: Write NetCDF + STAC metadata
 
         # Placeholder return
