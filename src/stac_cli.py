@@ -16,9 +16,9 @@ Usage:
         --year 2020 --month 1 \
         --output ./co2_output
 
-    # Download GFED burned area
+    # Download GFED fire data (batch processing for year range)
     python -m src.stac_cli gfed \
-        --year 2020 --month 1 \
+        --start-year 2001 --end-year 2024 \
         --output ./gfed_output
 
     # Generate CBF files from STAC catalog
@@ -179,21 +179,23 @@ def create_gfed_parser(subparsers) -> None:
 
     parser = subparsers.add_parser(
         'gfed',
-        help='Download GFED burned area data'
+        help='Download GFED fire data (burned area + CO2 emissions)',
+        description='Download and process GFED4.1s fire data in yearly batches. '
+                    'Each year is downloaded as a single HDF5 file containing all 12 months.'
     )
 
     parser.add_argument(
-        '--year',
+        '--start-year',
         type=int,
-        required=True,
-        help='Year to process'
+        default=2001,
+        help='First year to process (default: 2001, minimum: 2001)'
     )
 
     parser.add_argument(
-        '--month',
+        '--end-year',
         type=int,
-        required=True,
-        help='Month to process (1-12)'
+        default=2024,
+        help='Last year to process (default: 2024, maximum: 2025 through October)'
     )
 
     parser.add_argument(
@@ -389,7 +391,7 @@ def handle_gfed_download(args) -> int:
     """Handle GFED downloader invocation."""
 
     try:
-        logger.info("Starting GFED downloader")
+        logger.info(f"Starting GFED batch downloader for years {args.start_year}-{args.end_year}")
 
         # Initialize downloader
         downloader = GFEDDownloader(
@@ -398,15 +400,14 @@ def handle_gfed_download(args) -> int:
             verbose=args.verbose,
         )
 
-        # Download and process
-        results = downloader.download_and_process(
-            year=args.year,
-            month=args.month,
-            incremental=not args.no_stac_incremental,
-            duplicate_policy=args.stac_duplicate_policy,
+        # Download and process in batch mode (yearly files)
+        results = downloader.download_and_process_batch(
+            start_year=args.start_year,
+            end_year=args.end_year,
         )
 
-        logger.info(f"✓ GFED download successful")
+        logger.info(f"✓ GFED batch download successful")
+        logger.info(f"  Year range: {args.start_year}-{args.end_year}")
         logger.info(f"  Generated {len(results['output_files'])} files")
         logger.info(f"  Output directory: {args.output}")
 
@@ -485,6 +486,9 @@ Examples:
 
   # Download NOAA CO2 for specific month (backwards compatibility)
   %(prog)s noaa --year 2020 --month 1 --output ./output
+
+  # Download GFED fire data for year range (batch mode - downloads yearly files)
+  %(prog)s gfed --start-year 2001 --end-year 2024 --output ./output
 
   # Generate CBF files from STAC data
   %(prog)s cbf-generate --stac-api https://stac.maap.org \\
