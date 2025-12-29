@@ -170,13 +170,18 @@ CARDAMOM_VARIABLE_REGISTRY: Dict[str, Dict[str, Any]] = {
         'processing_notes': 'Nearest neighbor preserves sharp fire/no-fire boundaries'
     },
 
-    'fire_carbon': {
+    'fire_co2_emissions': {
         'source': 'gfed',
-        'cbf_names': None,  # Not directly used in CBF
-        'units': {'source': 'gC/m2/month', 'cbf': 'gC/m2/month'},
+        'alternative_names': ['FIRE_C', 'FireC', 'fire_carbon_emissions', 'fire_carbon', 'fire_emissions'],
+        'cbf_names': ['FIRE_C'],  # Enable CBF output
+        'units': {'source': 'gC/m2/month', 'cbf': 'gC/m2/day'},
+        'unit_conversion': {'method': 'multiply', 'factor': 12.0/365.25},
         'interpolation_method': 'nearest',
         'spatial_nature': 'patchy',
-        'description': 'Carbon emissions from fires'
+        'description': 'Fire CO2 carbon emissions from GFED4.1s',
+        'physical_range': (0, 1000),
+        'enforce_positive': True,
+        'processing_notes': 'Converted from monthly totals to daily rates. Post-2016 reconstructed using climatology.'
     },
 
     # ========== Land/Sea Mask Variables ==========

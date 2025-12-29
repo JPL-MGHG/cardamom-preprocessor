@@ -845,24 +845,179 @@ class GFEDDownloader(BaseDownloader):
             fire_emissions_05
         )
 
-        # Step 7: Write NetCDF + STAC metadata
-        # TODO: Implement NetCDF writing and STAC metadata generation
+        # Step 7: Create coordinate arrays for NetCDF
+        logger.info("Creating coordinate arrays for NetCDF output...")
+        latitude_05deg = latitude_025[::2]  # Downsample from 0.25° to 0.5°
+        longitude_05deg = longitude_025[::2]
 
-        logger.info("GFED batch processing complete")
+        # Step 8: Write yearly NetCDF files and create STAC items
+        logger.info("Writing yearly NetCDF files for burned area and fire emissions...")
+        output_files = []
+        burned_area_items_data = []
+        fire_emissions_items_data = []
+
+        # Process each year and write separate NetCDF files
+        for year in range(start_year, end_year + 1):
+            # Calculate year indices in the full array
+            year_idx_start = (year - start_year) * 12
+            year_idx_end = year_idx_start + 12
+
+            # Extract 12 months for this year
+            ba_year = burned_area_05[:, :, year_idx_start:year_idx_end]
+            fe_year = fire_emissions_daily_05[:, :, year_idx_start:year_idx_end]
+
+            # Create time coordinates for this year (mid-month timestamps)
+            time_coords = [datetime(year, month, 15) for month in range(1, 13)]
+
+            # === Burned Area NetCDF ===
+            ba_dataset = xr.Dataset(
+                {
+                    'BURNED_AREA': (
+                        ['latitude', 'longitude', 'time'],
+                        ba_year,
+                        {
+                            'long_name': 'Burned area fraction',
+                            'units': 'fraction',
+                            'standard_name': 'burned_area_fraction',
+                            'description': 'Monthly burned area fraction from GFED4.1s',
+                        },
+                    )
+                },
+                coords={
+                    'latitude': (['latitude'], latitude_05deg, {'units': 'degrees_north'}),
+                    'longitude': (['longitude'], longitude_05deg, {'units': 'degrees_east'}),
+                    'time': (['time'], time_coords),
+                },
+                attrs={
+                    'title': f'GFED4.1s Burned Area {year}',
+                    'source': 'GFED4.1s fire emissions database',
+                    'institution': 'NASA Jet Propulsion Laboratory',
+                    'Conventions': 'CF-1.8',
+                    'history': f'Created by CARDAMOM preprocessor on {datetime.now().isoformat()}',
+                    'processing': 'NaN-aware regridding, land-sea masked, climatology gap-filled post-2016',
+                    'version': '4.1s',
+                },
+            )
+
+            ba_filename = f"burned_area_{year}.nc"
+            ba_output_file = self.write_netcdf_file(
+                ba_dataset,
+                ba_filename,
+                variable_units={'BURNED_AREA': 'fraction'},
+            )
+            output_files.append(ba_output_file)
+
+            # Prepare STAC item data for burned area
+            burned_area_items_data.append({
+                'variable_name': 'BURNED_AREA',
+                'year': year,
+                'month': 1,  # Start of year for temporal extent
+                'data_file_path': f"data/{ba_filename}",
+                'properties': {
+                    'cardamom:units': 'fraction',
+                    'cardamom:source': 'gfed',
+                    'cardamom:version': '4.1s',
+                    'cardamom:processing': 'NaN-aware regridding, land-sea masked, climatology gap-filled post-2016',
+                    'cardamom:time_steps': 12,
+                    'start_datetime': f'{year}-01-01T00:00:00Z',
+                    'end_datetime': f'{year}-12-31T23:59:59Z',
+                },
+            })
+
+            # === Fire Emissions NetCDF ===
+            fe_dataset = xr.Dataset(
+                {
+                    'FIRE_C': (
+                        ['latitude', 'longitude', 'time'],
+                        fe_year,
+                        {
+                            'long_name': 'Fire CO2 carbon emissions',
+                            'units': 'gC/m2/day',
+                            'standard_name': 'fire_carbon_emissions',
+                            'description': 'Daily fire CO2 emissions from GFED4.1s',
+                        },
+                    )
+                },
+                coords={
+                    'latitude': (['latitude'], latitude_05deg, {'units': 'degrees_north'}),
+                    'longitude': (['longitude'], longitude_05deg, {'units': 'degrees_east'}),
+                    'time': (['time'], time_coords),
+                },
+                attrs={
+                    'title': f'GFED4.1s Fire Emissions {year}',
+                    'source': 'GFED4.1s fire emissions database',
+                    'institution': 'NASA Jet Propulsion Laboratory',
+                    'Conventions': 'CF-1.8',
+                    'history': f'Created by CARDAMOM preprocessor on {datetime.now().isoformat()}',
+                    'processing': 'Monthly to daily conversion (12/365.25), NaN-aware regridding, land-sea masked',
+                    'version': '4.1s',
+                },
+            )
+
+            fe_filename = f"fire_emissions_{year}.nc"
+            fe_output_file = self.write_netcdf_file(
+                fe_dataset,
+                fe_filename,
+                variable_units={'FIRE_C': 'gC/m2/day'},
+            )
+            output_files.append(fe_output_file)
+
+            # Prepare STAC item data for fire emissions
+            fire_emissions_items_data.append({
+                'variable_name': 'FIRE_C',
+                'year': year,
+                'month': 1,  # Start of year for temporal extent
+                'data_file_path': f"data/{fe_filename}",
+                'properties': {
+                    'cardamom:units': 'gC/m2/day',
+                    'cardamom:source': 'gfed',
+                    'cardamom:version': '4.1s',
+                    'cardamom:processing': 'Monthly to daily conversion (12/365.25), NaN-aware regridding, land-sea masked',
+                    'cardamom:time_steps': 12,
+                    'start_datetime': f'{year}-01-01T00:00:00Z',
+                    'end_datetime': f'{year}-12-31T23:59:59Z',
+                },
+            })
+
+        logger.info(f"Wrote {len(output_files)} NetCDF files ({(end_year - start_year + 1) * 2} files for {end_year - start_year + 1} years × 2 variables)")
+
+        # Step 9: Generate STAC metadata for burned area collection
+        logger.info("Creating STAC metadata for burned area collection...")
+        ba_stac_result = self.create_and_write_stac_metadata(
+            collection_id='cardamom-burned-area',
+            collection_description=f'Monthly burned area fraction from GFED4.1s ({start_year}-{end_year})',
+            collection_keywords=['fire', 'burned-area', 'gfed', 'disturbance'],
+            items_data=burned_area_items_data,
+            temporal_start=datetime(start_year, 1, 1),
+            temporal_end=datetime(end_year, 12, 31),
+            incremental=True,
+            duplicate_policy='update',
+        )
+
+        # Step 10: Generate STAC metadata for fire emissions collection
+        logger.info("Creating STAC metadata for fire emissions collection...")
+        fe_stac_result = self.create_and_write_stac_metadata(
+            collection_id='cardamom-fire-emissions',
+            collection_description=f'Daily fire CO2 emissions from GFED4.1s ({start_year}-{end_year})',
+            collection_keywords=['fire', 'emissions', 'carbon', 'gfed', 'disturbance', 'co2'],
+            items_data=fire_emissions_items_data,
+            temporal_start=datetime(start_year, 1, 1),
+            temporal_end=datetime(end_year, 12, 31),
+            incremental=True,
+            duplicate_policy='update',
+        )
+
+        logger.info("GFED batch processing complete with NetCDF and STAC outputs")
 
         return {
-            'output_files': [],
-            'stac_items': [],
-            'collection_ids': [],
+            'output_files': output_files,
+            'stac_items': ba_stac_result['items'] + fe_stac_result['items'],
+            'collection_ids': ['cardamom-burned-area', 'cardamom-fire-emissions'],
             'success': True,
-            'message': 'Batch processing complete. NetCDF writing not yet implemented.',
-            'data': {
-                'burned_area': burned_area_05,
-                'fire_emissions_daily': fire_emissions_daily_05,
-                'latitude': latitude_025[::2],  # Downsample coordinates
-                'longitude': longitude_025[::2],
-                'start_year': start_year,
-                'end_year': end_year,
+            'message': f'Successfully processed {end_year - start_year + 1} years of GFED data',
+            'merge_stats': {
+                'burned_area': ba_stac_result['merge_stats'],
+                'fire_emissions': fe_stac_result['merge_stats'],
             }
         }
 

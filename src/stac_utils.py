@@ -132,6 +132,14 @@ CARDAMOM_STAC_COLLECTIONS: Dict[str, Dict[str, Any]] = {
         'processing_level': 'analysis-ready',
         'keywords': ['fire', 'burned-area', 'gfed', 'disturbance'],
     },
+    'cardamom-fire-emissions': {
+        'description': 'Monthly fire CO2 emissions from GFED4.1s fire emissions database',
+        'cbf_variable': 'FIRE_C',
+        'units': 'gC/m2/day',
+        'data_source': 'gfed',
+        'processing_level': 'analysis-ready',
+        'keywords': ['fire', 'emissions', 'carbon', 'gfed', 'disturbance', 'co2'],
+    },
 }
 
 # Global spatial extent for CARDAMOM
