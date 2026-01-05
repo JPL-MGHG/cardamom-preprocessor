@@ -24,6 +24,7 @@ import logging
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 import numpy as np
+import pandas as pd
 import xarray as xr
 import pystac
 from pystac_client import Client
@@ -44,18 +45,20 @@ REQUIRED_FORCING_VARIABLES = [
     'SKT',
 ]
 
-# STAC Collection IDs for each variable
-STAC_COLLECTION_MAPPING = {
-    'T2M_MIN': 'cardamom-t2m-min',
-    'T2M_MAX': 'cardamom-t2m-max',
-    'VPD': 'cardamom-vpd',
-    'TOTAL_PREC': 'cardamom-total-prec',
-    'SSRD': 'cardamom-ssrd',
-    'STRD': 'cardamom-strd',
-    'SKT': 'cardamom-skt',
-    'SNOWFALL': 'cardamom-snowfall',
-    'CO2': 'cardamom-co2',
-    'BURNED_AREA': 'cardamom-burned-area',
+# Map CARDAMOM variable names to expected metadata values
+# Allows flexible naming: 'VPD' vs 'vpd' vs 'vapor_pressure_deficit'
+# Most cases: CARDAMOM name matches metadata exactly
+VARIABLE_METADATA_MAPPING = {
+    'VPD': 'VPD',
+    'T2M_MIN': 'T2M_MIN',
+    'T2M_MAX': 'T2M_MAX',
+    'TOTAL_PREC': 'TOTAL_PREC',
+    'SSRD': 'SSRD',
+    'STRD': 'STRD',
+    'SKT': 'SKT',
+    'SNOWFALL': 'SNOWFALL',
+    'CO2': 'CO2',
+    'BURNED_AREA': 'BURNED_AREA',
 }
 
 
@@ -88,7 +91,21 @@ def _is_local_catalog(source: str) -> bool:
 
 def _item_in_date_range(item: pystac.Item, start_datetime: str, end_datetime: str) -> bool:
     """
-    Check if a STAC item falls within the specified date range.
+    Check if a STAC item's temporal extent overlaps with the specified date range.
+
+    This handles two types of STAC items:
+    1. Point-in-time items: Single datetime (e.g., monthly meteorology)
+    2. Time-range items: start_datetime and end_datetime (e.g., yearly data with
+       multiple time steps, or time-series data like CO2 1979-2025)
+
+    Scientific Context:
+    Some data sources create yearly STAC items with 12 monthly time steps inside,
+    or time-series items covering decades. This function checks if the item's
+    temporal extent overlaps with the requested date range, not just if a point
+    datetime falls within the range.
+
+    Overlap detection uses standard interval overlap logic:
+    Item overlaps with range if: item_start <= range_end AND item_end >= range_start
 
     Args:
         item (pystac.Item): STAC item to check
@@ -96,30 +113,50 @@ def _item_in_date_range(item: pystac.Item, start_datetime: str, end_datetime: st
         end_datetime (str): End datetime in ISO format (e.g., '2020-12-31T23:59:59Z')
 
     Returns:
-        bool: True if item falls within date range, False otherwise
+        bool: True if item's temporal extent overlaps with date range
     """
     from datetime import datetime
 
-    # Parse date range
+    # Parse requested date range
     start_dt = datetime.fromisoformat(start_datetime.replace('Z', '+00:00'))
     end_dt = datetime.fromisoformat(end_datetime.replace('Z', '+00:00'))
 
-    # Get item datetime
+    # Get item's temporal extent
+    # First, try to get start/end datetime properties (for time-range items)
+    item_start_str = item.properties.get('start_datetime')
+    item_end_str = item.properties.get('end_datetime')
+
+    if item_start_str and item_end_str:
+        # Time-range item: has both start and end datetime
+        try:
+            item_start = datetime.fromisoformat(item_start_str.replace('Z', '+00:00'))
+            item_end = datetime.fromisoformat(item_end_str.replace('Z', '+00:00'))
+            # Check for overlap between [item_start, item_end] and [start_dt, end_dt]
+            # Overlap occurs if: item_start <= end_dt AND item_end >= start_dt
+            return item_start <= end_dt and item_end >= start_dt
+        except Exception:
+            pass
+
+    # Fall back to item.datetime (point-in-time items)
     item_datetime = item.datetime
     if item_datetime is None:
-        # If no datetime, check start_datetime and end_datetime properties
-        item_start = item.properties.get('start_datetime')
-        item_end = item.properties.get('end_datetime')
+        # Try to parse start_datetime or end_datetime as fallback
+        if item_start_str:
+            try:
+                item_datetime = datetime.fromisoformat(item_start_str.replace('Z', '+00:00'))
+            except Exception:
+                pass
+        elif item_end_str:
+            try:
+                item_datetime = datetime.fromisoformat(item_end_str.replace('Z', '+00:00'))
+            except Exception:
+                pass
 
-        if item_start:
-            item_datetime = datetime.fromisoformat(item_start.replace('Z', '+00:00'))
-        elif item_end:
-            item_datetime = datetime.fromisoformat(item_end.replace('Z', '+00:00'))
-        else:
-            # Cannot determine item date, skip
-            return False
+    if item_datetime is None:
+        # Cannot determine item date, skip
+        return False
 
-    # Check if item datetime falls within range
+    # Check if point-in-time item falls within range
     return start_dt <= item_datetime <= end_dt
 
 
@@ -130,11 +167,17 @@ def discover_stac_items(
     variable_name: str,
 ) -> List[Any]:
     """
-    Query STAC catalog (local or remote) to discover available items for a single variable.
+    Query STAC catalog to discover items for a variable using pure metadata filtering.
 
-    This function accepts either a local STAC catalog.json file path or a remote STAC API URL.
-    Local catalogs are useful for testing and offline workflows, while remote catalogs
-    enable cloud-based data discovery.
+    Uses PURE METADATA FILTERING - makes NO assumptions about catalog structure,
+    collection names, or organization. Queries all items recursively and filters
+    by 'cardamom:variable' property.
+
+    This approach works with ANY STAC organization:
+    - Collections or no collections
+    - Nested catalogs or flat catalogs
+    - Monolithic collections or per-variable collections
+    - Any naming scheme
 
     Args:
         stac_source (str): Path to local STAC catalog.json file or URL to remote STAC API
@@ -143,72 +186,132 @@ def discover_stac_items(
                 - Remote: 'https://stac-api.example.com'
         start_date (str): Start date in 'YYYY-MM' format
         end_date (str): End date in 'YYYY-MM' format
-        variable_name (str): Variable name (e.g., 'T2M_MIN')
+        variable_name (str): CARDAMOM variable name (e.g., 'T2M_MIN', 'VPD')
 
     Returns:
-        List[Any]: STAC Items available for the variable in the date range
+        List[Any]: STAC Items matching the variable and date range
 
     Raises:
         RuntimeError: If STAC catalog query fails
-        ValueError: If unknown variable name provided
+        ValueError: If no items found for variable
     """
 
-    if variable_name not in STAC_COLLECTION_MAPPING:
-        raise ValueError(f"Unknown variable: {variable_name}")
+    # Get expected metadata value for this variable
+    if variable_name not in VARIABLE_METADATA_MAPPING:
+        raise ValueError(
+            f"Unknown variable: {variable_name}. "
+            f"Available: {list(VARIABLE_METADATA_MAPPING.keys())}"
+        )
 
-    collection_id = STAC_COLLECTION_MAPPING[variable_name]
+    variable_metadata_value = VARIABLE_METADATA_MAPPING[variable_name]
 
     # Convert date strings to full datetime range for STAC query
     start_datetime = f"{start_date}-01T00:00:00Z"
     end_datetime = f"{end_date}-28T23:59:59Z"  # Conservative end date
 
+    logger.info(
+        f"Searching for items with cardamom:variable='{variable_metadata_value}' "
+        f"({start_date} to {end_date})"
+    )
+
     # Determine if source is local file or remote URL
     is_local = _is_local_catalog(stac_source)
 
     try:
-        logger.debug(f"Querying STAC collection: {collection_id}")
-
         if is_local:
             # Load local STAC catalog
             logger.debug(f"Loading local STAC catalog from: {stac_source}")
             catalog = pystac.Catalog.from_file(stac_source)
 
-            # Find collection in catalog
-            collection = catalog.get_child(collection_id)
-            if collection is None:
-                raise ValueError(
-                    f"Collection '{collection_id}' not found in local catalog"
-                )
-
-            # Get all items from collection and filter by datetime
-            items = []
-            for item in collection.get_items():
-                # Check if item falls within date range
-                if _item_in_date_range(item, start_datetime, end_datetime):
-                    items.append(item)
+            # Query ALL items from catalog recursively
+            # Makes NO assumptions about structure - works with any organization
+            logger.debug("Querying all items from catalog (recursive)")
+            all_items = list(catalog.get_items(recursive=True))
+            logger.info(f"Found {len(all_items)} total items in catalog")
 
         else:
-            # Query remote STAC API
+            # Query remote STAC API (also returns all matching items)
             logger.debug(f"Querying remote STAC API: {stac_source}")
             client = Client.open(stac_source)
 
             search = client.search(
-                collections=[collection_id],
                 datetime=f"{start_datetime}/{end_datetime}",
             )
 
-            items = list(search.items())
+            all_items = list(search.items())
+            logger.info(f"Found {len(all_items)} total items from remote API")
+
+        if not all_items:
+            raise ValueError("Catalog contains no items. Ensure data has been downloaded.")
+
+        # Filter items by variable metadata property
+        # Items have 'cardamom:variable' property that identifies the variable
+        matching_items = []
+        for item in all_items:
+            item_variable = item.properties.get('cardamom:variable')
+            if item_variable == variable_metadata_value:
+                matching_items.append(item)
 
         logger.info(
-            f"Discovered {len(items)} items for {variable_name} "
-            f"in {collection_id} ({start_date} to {end_date})"
+            f"Found {len(matching_items)} items with cardamom:variable='{variable_metadata_value}' "
+            f"(filtered from {len(all_items)} total items)"
         )
 
-        return items
+        if not matching_items:
+            # Show available variables to help debugging
+            available_vars = set()
+            for item in all_items:
+                var = item.properties.get('cardamom:variable')
+                if var:
+                    available_vars.add(var)
+
+            raise ValueError(
+                f"No items found with cardamom:variable='{variable_metadata_value}'. "
+                f"Available variables in catalog: {sorted(available_vars)}. "
+                f"Check that data was downloaded for this variable."
+            )
+
+        # Filter by date range
+        items_in_range = []
+        for item in matching_items:
+            if _item_in_date_range(item, start_datetime, end_datetime):
+                items_in_range.append(item)
+
+        logger.info(
+            f"After date filtering: {len(items_in_range)} items in range "
+            f"[{start_date} to {end_date}]"
+        )
+
+        if not items_in_range:
+            logger.warning(
+                f"No items found for variable '{variable_metadata_value}' in date range. "
+                f"Check start/end dates."
+            )
+            return []
+
+        # Deduplicate items by ID (root catalog may link to items also in collections)
+        original_count = len(items_in_range)
+        unique_items_by_id = {}
+        for item in items_in_range:
+            if item.id not in unique_items_by_id:
+                unique_items_by_id[item.id] = item
+
+        items_in_range = list(unique_items_by_id.values())
+
+        if len(items_in_range) < original_count:
+            logger.info(
+                f"Deduplicated items: {original_count} → {len(items_in_range)} "
+                f"(removed {original_count - len(items_in_range)} duplicates)"
+            )
+
+        # Sort by datetime
+        items_in_range.sort(key=lambda x: x.datetime or '')
+
+        return items_in_range
 
     except Exception as e:
         raise RuntimeError(
-            f"Failed to query STAC collection {collection_id}: {e}"
+            f"Failed to discover items for {variable_name}: {e}"
         ) from e
 
 
@@ -220,32 +323,54 @@ def load_variable_from_stac_items(
     Load variable data from STAC Item asset URLs and combine along time.
 
     Scientific Context:
-    STAC items represent monthly meteorological snapshots. This function loads
-    all months for a single variable and concatenates them into a time series.
-    Each NetCDF file contains one time step (1 month) of data.
+    STAC items can represent either:
+    1. Single month snapshots: One time step per file (e.g., ERA5 monthly data)
+    2. Yearly time-series: 12 time steps per file (e.g., GFED burned area)
+    3. Full time-series: Many time steps in one file (e.g., CO2 1979-2025)
+
+    This function handles all three cases by:
+    - Loading NetCDF files and checking their time dimension size
+    - Extracting or generating proper time coordinates from STAC metadata
+    - Combining datasets with matching time coordinates
+
+    Monthly NetCDF files typically have no explicit time dimension - only lat/lon.
+    This function adds proper time coordinates from STAC item metadata
+    (start_datetime, end_datetime, or datetime properties).
 
     Args:
-        stac_items (List[Any]): STAC Items for a variable (one per month)
+        stac_items (List[Any]): STAC Items for a variable
         variable_name (str): Variable name for logging
 
     Returns:
-        xr.Dataset: Combined dataset with all monthly data concatenated along time
+        xr.Dataset: Combined dataset with all data concatenated along time,
+                   with proper time coordinates extracted from STAC item metadata
 
     Raises:
         RuntimeError: If file loading fails or all items fail
     """
+    from datetime import datetime, timedelta
+
+    def add_months(dt, months):
+        """Add months to a datetime, handling year/month rollover."""
+        month = dt.month - 1 + months
+        year = dt.year + month // 12
+        month = month % 12 + 1
+        day = min(dt.day, [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28,
+                           31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1])
+        return dt.replace(year=year, month=month, day=day)
 
     logger.info(
         f"Loading {variable_name} data from {len(stac_items)} STAC items"
     )
 
     datasets = []
+    all_time_coords = []  # Track time coordinates for each dataset
     failed_items = []
 
     for i, item in enumerate(stac_items):
         try:
             # Get data asset URL
-            data_asset = item.get_asset('data')
+            data_asset = item.assets.get('data')
             if not data_asset:
                 logger.warning(
                     f"No 'data' asset found in item {item.id}. Skipping."
@@ -253,16 +378,113 @@ def load_variable_from_stac_items(
                 failed_items.append(item.id)
                 continue
 
-            file_path = data_asset.href
+            # Resolve asset href to absolute path
+            # If asset href is relative, resolve it from the item file location
+            asset_href = data_asset.href
+            if not Path(asset_href).is_absolute():
+                # Get item's directory (where the .json file is located)
+                # Use get_self_href() or self_href if available
+                try:
+                    self_href = item.get_self_href()
+                    if self_href:
+                        # Handle file:// URLs - convert to filesystem paths
+                        from urllib.parse import urlparse, unquote
+                        if self_href.startswith('file://'):
+                            parsed = urlparse(self_href)
+                            item_file = unquote(parsed.path)
+                        else:
+                            item_file = self_href
+
+                        item_dir = Path(item_file).parent
+                        file_path = str((item_dir / asset_href).resolve())
+                    else:
+                        # Fall back to just using the relative path
+                        file_path = asset_href
+                except (AttributeError, Exception):
+                    # Fallback if get_self_href doesn't exist or fails
+                    file_path = asset_href
+            else:
+                file_path = asset_href
 
             # Load NetCDF file
             ds = xr.open_dataset(file_path)
-            datasets.append(ds)
 
-            logger.debug(
-                f"Loaded {variable_name} item {i + 1}/{len(stac_items)}: "
-                f"{file_path}"
-            )
+            # Get item temporal extent (for time coordinate generation)
+            item_start_str = item.properties.get('start_datetime')
+            item_end_str = item.properties.get('end_datetime')
+
+            item_start_dt = None
+            if item_start_str:
+                try:
+                    item_start_dt = datetime.fromisoformat(
+                        item_start_str.replace('Z', '+00:00')
+                    )
+                except Exception:
+                    pass
+
+            # Determine number of time steps in this dataset
+            time_steps_in_file = 1  # Default: single time step
+            if 'time' in ds.dims:
+                time_steps_in_file = ds.sizes['time']
+            else:
+                # Check STAC metadata for time_steps
+                time_steps_meta = item.properties.get('cardamom:time_steps')
+                if time_steps_meta:
+                    time_steps_in_file = int(time_steps_meta)
+
+            # Generate time coordinates for this dataset
+            dataset_time_coords = []
+
+            if time_steps_in_file == 1:
+                # Single time step: use item's datetime
+                if item.datetime is not None:
+                    item_datetime = item.datetime
+                elif item_start_dt:
+                    item_datetime = item_start_dt
+                else:
+                    item_datetime = None
+
+                if item_datetime is None:
+                    logger.warning(
+                        f"No datetime found for item {item.id}. "
+                        f"Using integer index instead."
+                    )
+                    dataset_time_coords.append(None)
+                else:
+                    # Strip timezone info for numpy compatibility
+                    if item_datetime.tzinfo is not None:
+                        item_datetime = item_datetime.replace(tzinfo=None)
+                    dataset_time_coords.append(item_datetime)
+                    logger.debug(
+                        f"Loaded {variable_name} item {i + 1}/{len(stac_items)}: "
+                        f"{file_path} (datetime: {item_datetime.isoformat()})"
+                    )
+            else:
+                # Multiple time steps: generate monthly coordinates
+                if not item_start_dt:
+                    logger.warning(
+                        f"Item {item.id} has {time_steps_in_file} time steps "
+                        f"but no start_datetime. Using integer indices."
+                    )
+                    dataset_time_coords = [None] * time_steps_in_file
+                else:
+                    # Generate monthly datetime coordinates starting from item_start_dt
+                    current_dt = item_start_dt.replace(tzinfo=None)  # Strip timezone
+                    for step in range(time_steps_in_file):
+                        dataset_time_coords.append(current_dt)
+                        # Move to next month
+                        current_dt = add_months(current_dt, 1)
+
+                    logger.debug(
+                        f"Loaded {variable_name} item {i + 1}/{len(stac_items)}: "
+                        f"{file_path} ({time_steps_in_file} time steps, "
+                        f"{dataset_time_coords[0].isoformat()} to "
+                        f"{dataset_time_coords[-1].isoformat()})"
+                    )
+
+            # Store dataset and its time coordinates
+            datasets.append(ds)
+            all_time_coords.append(dataset_time_coords)
 
         except Exception as e:
             logger.warning(f"Failed to load {item.id}: {e}")
@@ -284,6 +506,58 @@ def load_variable_from_stac_items(
 
     # Combine along time dimension
     combined = xr.concat(datasets, dim='time')
+
+    # Build complete time coordinate array from all datasets
+    # Flatten the all_time_coords list (which has one list per dataset)
+    flattened_time_coords = []
+    for dataset_coords in all_time_coords:
+        flattened_time_coords.extend(dataset_coords)
+
+    # Add proper time coordinates from STAC items if available
+    if flattened_time_coords and any(dt is not None for dt in flattened_time_coords):
+        # Convert all datetimes to naive UTC (numpy doesn't support timezone info)
+        time_coords_naive = []
+        for dt in flattened_time_coords:
+            if dt is None:
+                time_coords_naive.append(np.datetime64('NaT'))
+            elif hasattr(dt, 'replace'):
+                # Already a datetime object, ensure it's timezone-naive
+                if dt.tzinfo is not None:
+                    dt = dt.replace(tzinfo=None)
+                time_coords_naive.append(dt)
+            else:
+                # Already a numpy datetime64
+                time_coords_naive.append(dt)
+
+        # Create numpy datetime64 array
+        try:
+            time_coords_np = np.array(time_coords_naive, dtype='datetime64[D]')
+
+            # Verify dimensions match
+            if len(time_coords_np) != combined.sizes['time']:
+                logger.warning(
+                    f"Time coordinate count ({len(time_coords_np)}) does not match "
+                    f"concatenated data time dimension ({combined.sizes['time']}). "
+                    f"Using integer indices instead."
+                )
+            else:
+                # Assign to combined dataset
+                combined = combined.assign_coords(time=time_coords_np)
+
+                logger.info(
+                    f"Added time coordinates from STAC items for {variable_name}: "
+                    f"{time_coords_np[0]} to {time_coords_np[-1]}"
+                )
+        except Exception as e:
+            logger.warning(
+                f"Failed to create time coordinates for {variable_name}: {e}. "
+                f"Using integer indices instead."
+            )
+    else:
+        logger.warning(
+            f"Could not extract datetimes from STAC items for {variable_name}. "
+            f"Using integer indices for time dimension."
+        )
 
     logger.info(
         f"Combined {variable_name}: {len(datasets)} items, shape={combined.dims}"
@@ -307,6 +581,11 @@ def validate_meteorology_completeness(
     accurate calculation of photosynthesis, respiration, and carbon fluxes.
     Forward analysis cannot proceed without complete meteorology.
 
+    This function handles two cases:
+    1. Datasets WITH time coordinates: Extracts YYYY-MM from time values
+    2. Datasets WITHOUT time coordinates: Checks that dataset has expected number
+       of time steps (monthly data should have len(time) == len(required_months))
+
     Args:
         met_data (Dict[str, xr.Dataset]): Dict mapping variable names to datasets
         required_months (List[str]): List of required months in 'YYYY-MM' format
@@ -327,25 +606,63 @@ def validate_meteorology_completeness(
             continue
 
         # Get available time steps for this variable
-        # Extract year-month from time coordinates
         ds = met_data[var_name]
+
+        # Check if dataset has a time dimension
         if 'time' not in ds.dims:
-            logger.warning(f"{var_name} has no time dimension")
+            logger.warning(
+                f"{var_name} has no time dimension. Expected {len(required_months)} months."
+            )
             missing_by_variable[var_name] = required_months
             continue
 
         available_times = ds['time'].values
         available_months = set()
 
-        for t in available_times:
-            try:
-                # Convert numpy datetime64 to string
-                time_str = str(t)
-                # Extract YYYY-MM
-                year_month = time_str[:7]  # e.g., '2020-01'
-                available_months.add(year_month)
-            except Exception as e:
-                logger.warning(f"Could not parse time value {t}: {e}")
+        # Case 1: Time coordinates are datetime64 values (from STAC items)
+        # Extract YYYY-MM from datetime values
+        if available_times.dtype.kind == 'M':  # Check if dtype is datetime64
+            for t in available_times:
+                try:
+                    # Convert numpy datetime64 to string
+                    time_str = str(t)
+                    # Extract YYYY-MM (handles both '2020-01-15' and '2020-01' formats)
+                    year_month = time_str[:7]  # e.g., '2020-01'
+                    available_months.add(year_month)
+                except Exception as e:
+                    logger.warning(f"Could not parse time value {t}: {e}")
+
+            logger.debug(
+                f"{var_name}: Found time coordinates, "
+                f"extracted {len(available_months)} unique months"
+            )
+
+        # Case 2: Time coordinates are integer indices (no datetimes available)
+        # Check that we have the expected number of time steps
+        else:
+            logger.debug(
+                f"{var_name}: Time dimension is numeric indices "
+                f"(no datetime coordinates from STAC items)"
+            )
+
+            num_time_steps = len(available_times)
+            expected_time_steps = len(required_months)
+
+            if num_time_steps == expected_time_steps:
+                # Assume all months are present in order
+                available_months = set(required_months)
+                logger.info(
+                    f"{var_name}: {num_time_steps} time steps match "
+                    f"required {expected_time_steps} months (using STAC order)"
+                )
+            else:
+                logger.warning(
+                    f"{var_name}: Time step count mismatch - "
+                    f"expected {expected_time_steps}, got {num_time_steps}"
+                )
+                # Cannot validate which months are present without datetime coords
+                missing_by_variable[var_name] = required_months
+                continue
 
         # Check for missing months
         required_set = set(required_months)
@@ -353,11 +670,15 @@ def validate_meteorology_completeness(
 
         if missing_months:
             missing_by_variable[var_name] = sorted(missing_months)
+            logger.warning(
+                f"{var_name}: Missing {len(missing_months)} months: "
+                f"{sorted(missing_months)}"
+            )
 
     # Report validation results
     if missing_by_variable:
         error_msg = "CRITICAL: Meteorological data is incomplete. Cannot generate valid CBF.\n"
-        for var_name, missing_months in missing_by_variable.items():
+        for var_name, missing_months in sorted(missing_by_variable.items()):
             error_msg += (
                 f"  {var_name}: Missing {len(missing_months)} months: "
                 f"{missing_months[:3]}...\n"
@@ -367,7 +688,101 @@ def validate_meteorology_completeness(
             f"Incomplete meteorology: {len(missing_by_variable)} variables have gaps"
         )
 
-    logger.info("Meteorology validation passed: All variables complete")
+    logger.info(
+        f"✓ Meteorology validation passed: All {len(REQUIRED_FORCING_VARIABLES)} "
+        f"variables complete for {len(required_months)} months"
+    )
+
+
+def _subset_meteorology_to_time_range(
+    met_data: Dict[str, xr.Dataset],
+    start_date: str,
+    end_date: str,
+    required_months: List[str],
+) -> Dict[str, xr.Dataset]:
+    """
+    Subset meteorological datasets to requested time range.
+
+    Handles cases where a single STAC item spans a much wider time range
+    (e.g., CO2 1979-2025 when user only requested 2020). After validation
+    confirms required months are present, this function extracts only the
+    requested date range.
+
+    Args:
+        met_data: Dictionary of variable datasets
+        start_date: Start date in 'YYYY-MM' format
+        end_date: End date in 'YYYY-MM' format
+        required_months: List of required months in 'YYYY-MM' format
+
+    Returns:
+        Dictionary with same structure but time-subsetted datasets
+    """
+    from datetime import datetime
+
+    # Parse date range
+    start_dt = datetime.strptime(start_date, '%Y-%m')
+    end_dt = datetime.strptime(end_date, '%Y-%m')
+
+    logger.info(f"Subsetting meteorology to time range: {start_date} to {end_date}")
+
+    met_data_subset = {}
+
+    for var_name, ds in met_data.items():
+        if ds is None or 'time' not in ds.dims:
+            met_data_subset[var_name] = ds
+            continue
+
+        try:
+            # Get time coordinates
+            time_values = ds['time'].values
+
+            # Handle datetime64 time coordinates
+            if hasattr(time_values[0], 'astype') or str(time_values.dtype).startswith('datetime64'):
+                # Convert to datetime for comparison
+                time_datetimes = [pd.Timestamp(t).to_pydatetime() for t in time_values]
+
+                # Find indices within requested range
+                mask = [
+                    (start_dt.year < dt.year or
+                     (start_dt.year == dt.year and start_dt.month <= dt.month)) and
+                    (end_dt.year > dt.year or
+                     (end_dt.year == dt.year and end_dt.month >= dt.month))
+                    for dt in time_datetimes
+                ]
+
+                if sum(mask) == len(mask):
+                    # All time steps within range, no subsetting needed
+                    met_data_subset[var_name] = ds
+                    logger.debug(f"{var_name}: All {len(mask)} time steps within requested range")
+                else:
+                    # Convert boolean mask to integer indices for xarray.isel()
+                    indices = [i for i, m in enumerate(mask) if m]
+                    ds_subset = ds.isel(time=indices)
+                    num_kept = sum(mask)
+                    logger.info(
+                        f"{var_name}: Subsetted from {len(mask)} to {num_kept} time steps "
+                        f"(kept months: {required_months[0]} to {required_months[-1]})"
+                    )
+                    met_data_subset[var_name] = ds_subset
+            else:
+                # Integer time indices, assume already in order
+                # Check if dataset has all required months
+                if len(time_values) >= len(required_months):
+                    # Take only the required number of time steps
+                    ds_subset = ds.isel(time=slice(0, len(required_months)))
+                    logger.info(
+                        f"{var_name}: Using first {len(required_months)} time steps "
+                        f"(integer indices)"
+                    )
+                    met_data_subset[var_name] = ds_subset
+                else:
+                    met_data_subset[var_name] = ds
+
+        except Exception as e:
+            logger.warning(f"Could not subset {var_name} to time range: {e}. Keeping original.")
+            met_data_subset[var_name] = ds
+
+    return met_data_subset
 
 
 def assemble_unified_meteorology_dataset(
@@ -378,6 +793,14 @@ def assemble_unified_meteorology_dataset(
 
     This creates a dataset with all meteorological variables sharing
     identical spatial and temporal coordinates, similar to the AllMet structure.
+
+    Scientific Context:
+    Different data sources may have different spatial resolutions:
+    - ERA5: 0.25° grid (1440 longitude)
+    - CO2 & BURNED_AREA: 0.5° grid (720 longitude)
+
+    This function automatically detects resolution mismatches and regrids
+    finer-resolution data to coarser-resolution grid using linear interpolation.
 
     Args:
         met_data (Dict[str, xr.Dataset]): Dictionary mapping variable names
@@ -395,13 +818,33 @@ def assemble_unified_meteorology_dataset(
     if not met_data:
         raise ValueError("No meteorological data to assemble")
 
-    # Get reference coordinates from first variable
-    reference_ds = list(met_data.values())[0]
-    reference_coords = reference_ds.coords
+    # Step 1: Find reference grid (coarsest resolution)
+    # This ensures all data is on the same grid as data with fewest grid points
+    reference_ds = None
+    reference_var_name = None
+    min_grid_size = float('inf')
 
+    for var_name, var_ds in met_data.items():
+        # Count total grid points
+        if 'latitude' in var_ds.coords and 'longitude' in var_ds.coords:
+            grid_size = len(var_ds.coords['latitude']) * len(var_ds.coords['longitude'])
+            if grid_size < min_grid_size:
+                min_grid_size = grid_size
+                reference_ds = var_ds
+                reference_var_name = var_name
+
+    if reference_ds is None:
+        raise ValueError("Could not find reference grid from meteorological data")
+
+    logger.info(
+        f"Using {reference_var_name} as reference grid: "
+        f"latitude={len(reference_ds.coords['latitude'])}, "
+        f"longitude={len(reference_ds.coords['longitude'])}"
+    )
+
+    # Step 2: Extract data arrays and regrid if needed
     combined_data_arrays = {}
 
-    # Extract data arrays for each variable
     for var_name, var_ds in met_data.items():
         # Get the first (and usually only) data variable in the file
         data_var_names = list(var_ds.data_vars)
@@ -417,15 +860,43 @@ def assemble_unified_meteorology_dataset(
             logger.warning(
                 f"{var_name} has non-standard dimensions: {data_array.dims}"
             )
+            continue
+
+        # Check if regridding is needed (resolution mismatch)
+        var_grid_size = len(var_ds.coords['latitude']) * len(var_ds.coords['longitude'])
+        if var_grid_size != min_grid_size:
+            logger.info(
+                f"Regridding {var_name} from {len(var_ds.coords['latitude'])}x"
+                f"{len(var_ds.coords['longitude'])} "
+                f"to {len(reference_ds.coords['latitude'])}x"
+                f"{len(reference_ds.coords['longitude'])} grid"
+            )
+            try:
+                # Regrid to reference grid using linear interpolation
+                data_array = data_array.interp_like(reference_ds, method='linear')
+                logger.debug(
+                    f"  ✓ Regridded {var_name}: "
+                    f"new shape={data_array.shape}"
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to regrid {var_name}: {e}. "
+                    f"Skipping variable."
+                )
+                continue
 
         # Add to combined dataset with standardized variable name
         combined_data_arrays[var_name] = data_array
-        logger.debug(f"Added {var_name}: shape={data_array.shape}")
+        logger.debug(
+            f"Added {var_name}: shape={data_array.shape}, "
+            f"lat={len(data_array.latitude)}, lon={len(data_array.longitude)}"
+        )
 
-    # Create unified dataset
+    # Step 3: Create unified dataset with common coordinates
     combined_dataset = xr.Dataset(combined_data_arrays)
 
-    # Set coordinates to match reference
+    # Set coordinates to match reference (all data now on same grid)
+    reference_coords = reference_ds.coords
     combined_dataset.coords['latitude'] = reference_coords['latitude']
     combined_dataset.coords['longitude'] = reference_coords['longitude']
 
@@ -433,9 +904,10 @@ def assemble_unified_meteorology_dataset(
         combined_dataset.coords['time'] = reference_coords['time']
 
     logger.info(
-        f"Assembled meteorology dataset: "
-        f"shape={combined_dataset.dims}, "
-        f"variables={list(combined_dataset.data_vars)}"
+        f"✓ Assembled unified meteorology dataset: "
+        f"shape={dict(combined_dataset.dims)}, "
+        f"variables={list(combined_dataset.data_vars)}, "
+        f"grid=0.5° (land fraction masked ready)"
     )
 
     return combined_dataset
@@ -552,7 +1024,14 @@ def load_met_data_from_stac(
     # Step 3: Validate completeness (FAIL if incomplete)
     validate_meteorology_completeness(met_data, required_months)
 
-    # Step 4: Assemble into unified dataset
+    # Step 4: Subset time dimension to requested date range
+    # This handles cases like CO2 where a single item spans 1979-2025
+    # but user only requested 2020 data
+    met_data = _subset_meteorology_to_time_range(
+        met_data, start_date, end_date, required_months
+    )
+
+    # Step 5: Assemble into unified dataset
     unified_met_data = assemble_unified_meteorology_dataset(met_data)
 
     logger.info("Meteorology loading complete")

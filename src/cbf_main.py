@@ -490,6 +490,15 @@ def generate_cbf_files(
             end_date=end_date,
         )
         logger.info(f"✓ Meteorology loaded: {list(met_data.data_vars)}")
+
+        # Write unified meteorology dataset to output directory for inspection
+        os.makedirs(output_directory, exist_ok=True)
+        unified_met_file = os.path.join(output_directory, "unified_meteorology.nc")
+        try:
+            met_data.to_netcdf(unified_met_file)
+            logger.info(f"✓ Unified meteorology written to: {unified_met_file}")
+        except Exception as e:
+            logger.warning(f"Could not write unified meteorology to file: {e}")
     except Exception as e:
         logger.error(f"✗ Failed to load meteorology: {e}")
         logger.error("Meteorological data is CRITICAL - cannot continue without it")

@@ -24,6 +24,8 @@ import logging
 from pathlib import Path
 import pystac
 from pystac import Item, Collection, Extent, SpatialExtent, TemporalExtent, Link, Asset, Catalog
+import xarray as xr
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,102 @@ def _normalize_path_separators(file_path: str) -> str:
         str: Path with forward slashes
     """
     return str(file_path).replace('\\', '/')
+
+
+def extract_temporal_metadata_from_netcdf(
+    netcdf_file_path: str,
+) -> Dict[str, Any]:
+    """
+    Extract temporal metadata from NetCDF file for STAC item creation.
+
+    Reads the time coordinate from a NetCDF file and calculates the temporal
+    extent for STAC metadata. This makes the NetCDF file the source of truth
+    for temporal information.
+
+    Scientific Context:
+        NetCDF files store time as coordinates with CF-compliant encoding
+        (e.g., "days since 2001-01-01"). This function converts encoded time
+        values to Python datetime objects for STAC metadata.
+
+    Args:
+        netcdf_file_path (str): Absolute or relative path to NetCDF file
+
+    Returns:
+        Dict[str, Any]: Temporal metadata with keys:
+            - 'start_datetime': datetime object (first time step)
+            - 'end_datetime': datetime object (first day after last time step)
+            - 'num_time_steps': int (number of time coordinates)
+            - 'has_time_dimension': bool (whether file has time dimension)
+
+    Raises:
+        FileNotFoundError: If NetCDF file doesn't exist
+        ValueError: If NetCDF file cannot be read
+
+    Example:
+        >>> metadata = extract_temporal_metadata_from_netcdf('co2_1980_2025.nc')
+        >>> print(metadata['start_datetime'])
+        1980-01-01 00:00:00
+        >>> print(metadata['end_datetime'])
+        2025-12-01 00:00:00  # First day after last time step
+    """
+
+    # Validate file exists
+    file_path = Path(netcdf_file_path)
+    if not file_path.exists():
+        raise FileNotFoundError(f"NetCDF file not found: {netcdf_file_path}")
+
+    # Open NetCDF file
+    try:
+        ds = xr.open_dataset(netcdf_file_path)
+    except Exception as e:
+        raise ValueError(f"Failed to open NetCDF file {netcdf_file_path}: {e}")
+
+    # Check for time dimension
+    if 'time' not in ds.coords and 'time' not in ds.dims:
+        ds.close()
+        return {
+            'has_time_dimension': False,
+            'start_datetime': None,
+            'end_datetime': None,
+            'num_time_steps': 0,
+        }
+
+    # Extract time coordinate
+    time_coord = ds['time']
+
+    # Convert to datetime objects (xarray handles CF encoding automatically)
+    time_values = time_coord.values
+
+    # Handle different numpy datetime types using pandas
+    time_datetimes = pd.to_datetime(time_values)
+
+    # Get first and last time steps
+    start_datetime = time_datetimes[0].to_pydatetime()
+    last_datetime = time_datetimes[-1].to_pydatetime()
+
+    # Calculate end_datetime as first day of month AFTER last time step
+    # This follows STAC convention for half-open intervals [start, end)
+    if last_datetime.month == 12:
+        end_datetime = datetime(last_datetime.year + 1, 1, 1)
+    else:
+        end_datetime = datetime(last_datetime.year, last_datetime.month + 1, 1)
+
+    num_time_steps = len(time_values)
+
+    ds.close()
+
+    logger.info(
+        f"Extracted temporal metadata from {netcdf_file_path}: "
+        f"{start_datetime.isoformat()} to {end_datetime.isoformat()} "
+        f"({num_time_steps} time steps)"
+    )
+
+    return {
+        'has_time_dimension': True,
+        'start_datetime': start_datetime,
+        'end_datetime': end_datetime,
+        'num_time_steps': num_time_steps,
+    }
 
 
 # ========== STAC Collection Definitions ==========
@@ -228,12 +326,13 @@ def create_stac_collection(
 
 def create_stac_item(
     variable_name: str,
-    year: int,
-    month: int,
     data_file_path: str,
     collection_id: str,
+    year: Optional[int] = None,
+    month: Optional[int] = None,
     bbox: Optional[List[float]] = None,
     properties: Optional[Dict[str, Any]] = None,
+    netcdf_file_path_for_inspection: Optional[str] = None,
 ) -> Item:
     """
     Create a STAC Item representing a single data file (e.g., one month of data).
@@ -241,53 +340,134 @@ def create_stac_item(
     A STAC Item describes a single file of analysis-ready data with its location,
     temporal range, and metadata properties.
 
+    Temporal extent is determined by (in priority order):
+    1. Explicit start_datetime/end_datetime in properties dict
+    2. Automatic extraction from NetCDF file (if netcdf_file_path_for_inspection provided)
+    3. Calculation from year/month parameters (backwards compatibility)
+
     Scientific Context:
     Each monthly meteorological file becomes a STAC Item, allowing the CBF generator
     to query and discover specific months of specific variables without scanning
-    the filesystem.
+    the filesystem. The NetCDF file's time coordinate is the authoritative source
+    of temporal information.
 
     Args:
         variable_name (str): CARDAMOM variable name (e.g., 'T2M_MIN')
-        year (int): Year of data (e.g., 2020)
-        month (int): Month of data (1-12)
         data_file_path (str): Relative or absolute path to NetCDF file.
             Will be converted to relative path when serializing.
         collection_id (str): ID of the parent STAC Collection
+        year (Optional[int]): Year of data (for manual datetime calculation).
+            If None and netcdf_file_path_for_inspection not provided, raises error.
+        month (Optional[int]): Month of data (1-12) (for manual datetime calculation).
+            If None and netcdf_file_path_for_inspection not provided, raises error.
         bbox (Optional[List[float]]): Bounding box [min_lon, min_lat, max_lon, max_lat].
             Defaults to global bbox if not provided.
         properties (Optional[Dict]): Additional custom properties
+        netcdf_file_path_for_inspection (Optional[str]): Absolute path to NetCDF
+            file for automatic temporal metadata extraction. If provided,
+            year/month parameters are ignored.
 
     Returns:
         pystac.Item: STAC Item object ready for serialization
 
     Example:
         >>> from datetime import datetime
+        >>> # Method 1: Auto-extract from NetCDF file
+        >>> item = create_stac_item(
+        ...     variable_name='CO2',
+        ...     data_file_path='./data/co2_1980_2025.nc',
+        ...     collection_id='cardamom-co2',
+        ...     netcdf_file_path_for_inspection='/full/path/co2_1980_2025.nc'
+        ... )
+        >>> # Method 2: Manually specify year/month (backwards compatible)
         >>> item = create_stac_item(
         ...     variable_name='T2M_MIN',
-        ...     year=2020,
-        ...     month=1,
         ...     data_file_path='./data/t2m_min_2020_01.nc',
-        ...     collection_id='cardamom-t2m-min'
+        ...     collection_id='cardamom-t2m-min',
+        ...     year=2020,
+        ...     month=1
         ... )
-        >>> print(f"{item.id}: {item.datetime}")
-        t2m_min_2020_01: 2020-01-01 00:00:00
     """
 
     # Use global bounding box if not specified
     if bbox is None:
         bbox = [-180, -90, 180, 90]
 
-    # Calculate datetime range for this month
-    start_datetime = datetime(year, month, 1)
+    # Initialize properties dict if not provided
+    if properties is None:
+        properties = {}
 
-    # Calculate end of month (first day of next month, or Dec 31 if December)
-    if month == 12:
-        end_datetime = datetime(year + 1, 1, 1)
-    else:
-        end_datetime = datetime(year, month + 1, 1)
+    # Determine temporal extent based on priority
+    start_datetime = None
+    end_datetime = None
+
+    # Priority 1: Explicit datetime in properties (overrides everything)
+    if 'start_datetime' in properties and 'end_datetime' in properties:
+        # User explicitly provided - use as-is
+        start_datetime_str = properties['start_datetime']
+        end_datetime_str = properties['end_datetime']
+
+        # Parse for item.datetime (required field)
+        start_datetime = datetime.fromisoformat(start_datetime_str.rstrip('Z'))
+
+    # Priority 2: Extract from NetCDF file (recommended approach)
+    elif netcdf_file_path_for_inspection:
+        temporal_metadata = extract_temporal_metadata_from_netcdf(
+            netcdf_file_path_for_inspection
+        )
+
+        if temporal_metadata['has_time_dimension']:
+            start_datetime = temporal_metadata['start_datetime']
+            end_datetime = temporal_metadata['end_datetime']
+
+            # Add to properties for STAC
+            properties['start_datetime'] = start_datetime.isoformat() + 'Z'
+            properties['end_datetime'] = end_datetime.isoformat() + 'Z'
+            properties['cardamom:time_steps'] = temporal_metadata['num_time_steps']
+        else:
+            # No time dimension - fall back to year/month or raise error
+            if year is None or month is None:
+                raise ValueError(
+                    f"NetCDF file {netcdf_file_path_for_inspection} has no time dimension "
+                    "and year/month not provided"
+                )
+
+    # Priority 3: Calculate from year/month (backwards compatibility)
+    if start_datetime is None:
+        if year is None or month is None:
+            raise ValueError(
+                "Must provide either: (1) start_datetime/end_datetime in properties, "
+                "(2) netcdf_file_path_for_inspection, or (3) year and month parameters"
+            )
+
+        start_datetime = datetime(year, month, 1)
+        if month == 12:
+            end_datetime = datetime(year + 1, 1, 1)
+        else:
+            end_datetime = datetime(year, month + 1, 1)
+
+        if 'start_datetime' not in properties:
+            properties['start_datetime'] = start_datetime.isoformat() + 'Z'
+            properties['end_datetime'] = end_datetime.isoformat() + 'Z'
 
     # Create unique item ID
-    item_id = f"{variable_name.lower()}_{year}_{month:02d}"
+    # Use year/month if available, otherwise extract from start_datetime
+    if year and month:
+        item_id = f"{variable_name.lower()}_{year}_{month:02d}"
+    else:
+        # Extract from start_datetime in properties
+        if 'start_datetime' in properties:
+            start_dt_str = properties['start_datetime'].rstrip('Z')
+            start_dt = datetime.fromisoformat(start_dt_str)
+        else:
+            start_dt = start_datetime
+        item_id = f"{variable_name.lower()}_{start_dt.year}_{start_dt.month:02d}"
+
+    # Ensure both start and end datetime are set for properties
+    if 'start_datetime' not in properties:
+        properties['start_datetime'] = start_datetime.isoformat() + 'Z'
+    if 'end_datetime' not in properties and end_datetime is not None:
+        properties['end_datetime'] = end_datetime.isoformat() + 'Z'
 
     # Create the STAC Item
     item = Item(
@@ -306,30 +486,25 @@ def create_stac_item(
         },
         bbox=bbox,
         datetime=start_datetime,
-        properties={
-            'start_datetime': start_datetime.isoformat() + 'Z',
-            'end_datetime': end_datetime.isoformat() + 'Z',
-        },
+        properties=properties,  # Already contains start_datetime/end_datetime
     )
 
     # Add standard CARDAMOM properties
     item.properties['cardamom:variable'] = variable_name
     item.properties['cardamom:collection'] = collection_id
 
-    # Add custom properties if provided
-    if properties:
-        for key, value in properties.items():
-            item.properties[key] = value
-
     # Add the data asset
     # Store the file path as-is; it will be converted to relative path during serialization
     asset_href = _normalize_path_separators(data_file_path)
+    title = f'{variable_name} data'
+    if year and month:
+        title = f'{variable_name} {year}-{month:02d}'
     item.add_asset(
         key='data',
         asset=Asset(
             href=asset_href,
             media_type='application/x-netcdf',
-            title=f'{variable_name} {year}-{month:02d}',
+            title=title,
             roles=['data'],
         )
     )
