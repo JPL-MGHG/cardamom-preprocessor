@@ -382,6 +382,8 @@ class ECMWFDownloader(BaseDownloader):
         Calculate Vapor Pressure Deficit from temperature and dewpoint.
 
         Uses MATLAB-equivalent formula for consistency with original CARDAMOM workflows.
+        MATLAB Reference: /MATLAB/prototypes/CARDAMOM_MAPS_05deg_DATASETS_JUL24.m line 202
+        Formula: VPD=(SCIFUN_H2O_SATURATION_PRESSURE(ET2M.datamax) - SCIFUN_H2O_SATURATION_PRESSURE(ED2M.datamax))*10
 
         Args:
             temperature_file (Path): NetCDF with 2m_temperature
@@ -389,7 +391,25 @@ class ECMWFDownloader(BaseDownloader):
 
         Returns:
             xr.Dataset: Dataset with VPD variable
+
+        Raises:
+            FileNotFoundError: If required dewpoint temperature data is missing
+            ValueError: If data files are invalid or incompatible
         """
+
+        # Validate required files exist (following MATLAB requirements exactly)
+        if not temperature_file.exists():
+            raise FileNotFoundError(
+                f"Temperature file required for VPD calculation: {temperature_file}"
+            )
+
+        if not dewpoint_file.exists():
+            raise FileNotFoundError(
+                f"Dewpoint temperature file required for VPD calculation: {dewpoint_file}. "
+                f"VPD calculation follows MATLAB implementation which requires both "
+                f"temperature (ET2M.datamax) and dewpoint (ED2M.datamax) data. "
+                f"Cannot proceed without dewpoint temperature data."
+            )
 
         # Load data
         ds_temp = xr.open_dataset(temperature_file)
@@ -417,7 +437,7 @@ class ECMWFDownloader(BaseDownloader):
         # Calculate VPD using MATLAB-equivalent formula
         vpd_hpa = calculate_vapor_pressure_deficit_matlab(
             temperature_max_celsius,
-            temperature_max_celsius,  # Using T_max for both (consistent with MATLAB)
+            dewpoint_celsius,  # Use actual dewpoint temperature for correct VPD calculation
         )
 
         ds_temp.close()
@@ -490,22 +510,36 @@ class ECMWFDownloader(BaseDownloader):
         radiation_type: str,
     ) -> xr.Dataset:
         """
-        Convert radiation from J/m² to W/m².
+        Convert radiation from J/m² to MJ/m²/day for CARDAMOM CBF format.
 
         ERA5 monthly_averaged_reanalysis provides mean daily accumulation in J/m².
-        Convert to instantaneous rate in W/m² by dividing by seconds per day.
+        CARDAMOM requires daily accumulated radiation energy in MJ/m²/day for
+        daily carbon cycle modeling.
 
         Scientific Background:
         - Input: Mean daily radiation accumulation (J/m² per day)
-        - Output: Instantaneous radiation flux (W/m² = J/m²/s)
-        - Conversion: J/m²/day ÷ 86400 s/day = W/m²
+        - Output: Daily radiation accumulation (MJ/m²/day)
+        - Conversion: J/m²/day ÷ 1,000,000 J/MJ = MJ/m²/day
+
+        Physical Interpretation:
+        This represents total radiation energy received per square meter per day.
+        CARDAMOM uses a daily timestep and requires accumulated daily energy,
+        not instantaneous power flux.
+
+        Typical ranges:
+        - SSRD (solar): 0-40 MJ/m²/day
+        - STRD (thermal): 0-50 MJ/m²/day
 
         Args:
-            radiation_file (Path): NetCDF with radiation data
+            radiation_file (Path): NetCDF with radiation data in J/m²
             radiation_type (str): 'ssrd' or 'strd'
 
         Returns:
-            xr.Dataset: Dataset with radiation in W/m²
+            xr.Dataset: Dataset with radiation in MJ/m²/day
+
+        References:
+            ERA5 documentation: https://confluence.ecmwf.int/display/CKB/ERA5
+            CARDAMOM CBF format specification
         """
 
         ds = xr.open_dataset(radiation_file)
@@ -515,16 +549,16 @@ class ECMWFDownloader(BaseDownloader):
 
         radiation_j_m2 = ds[rad_var].mean(dim=time_dim, skipna=True).values
 
-        # ERA5 monthly_averaged_reanalysis provides mean daily accumulation
-        # Units: J/m² per day → convert to W/m² (J/m²/s)
-        seconds_per_day = 86400  # 24 hours * 3600 seconds
+        # Convert from J/m²/day to MJ/m²/day for CARDAMOM CBF format
+        # 1 MJ = 1,000,000 J
+        joules_per_megajoule = 1_000_000
 
-        radiation_w_m2 = radiation_j_m2 / seconds_per_day
+        radiation_mj_m2_day = radiation_j_m2 / joules_per_megajoule
 
         ds.close()
 
         rad_array = xr.DataArray(
-            radiation_w_m2,
+            radiation_mj_m2_day,
             coords={
                 'latitude': ds['latitude'],
                 'longitude': ds['longitude'],
@@ -535,8 +569,23 @@ class ECMWFDownloader(BaseDownloader):
 
         result = rad_array.to_dataset()
 
+        # Validate physical reasonableness
+        mean_radiation = radiation_mj_m2_day.mean()
+        max_radiation = radiation_mj_m2_day.max()
+
+        # Expected ranges for MJ/m²/day
+        expected_max = 50.0 if radiation_type == 'strd' else 40.0
+
+        if max_radiation > expected_max * 1.5:  # Allow 50% margin for edge cases
+            logger.warning(
+                f"Unusually high {radiation_type} values detected: "
+                f"max={max_radiation:.2f} MJ/m²/day (expected max ~{expected_max} MJ/m²/day). "
+                f"Check data quality."
+            )
+
         logger.debug(
-            f"Processed {radiation_type}: mean={radiation_w_m2.mean():.2f} W/m²"
+            f"Processed {radiation_type}: mean={mean_radiation:.2f} MJ/m²/day, "
+            f"max={max_radiation:.2f} MJ/m²/day"
         )
 
         return result
@@ -731,15 +780,24 @@ class ECMWFDownloader(BaseDownloader):
 
     @staticmethod
     def _get_variable_units(variable_name: str) -> Dict[str, str]:
-        """Get standard CARDAMOM units for a variable."""
+        """
+        Get standard CARDAMOM CBF units for a variable.
+
+        Returns:
+            Dict mapping variable name to its CBF-standard unit string
+
+        Note:
+            Radiation units are MJ m-2 day-1 (daily accumulation) per CARDAMOM requirements,
+            NOT W m-2 (instantaneous flux)
+        """
 
         units_map = {
             'T2M_MIN': 'K',
             'T2M_MAX': 'K',
             'VPD': 'hPa',
             'TOTAL_PREC': 'mm',
-            'SSRD': 'W m-2',
-            'STRD': 'W m-2',
+            'SSRD': 'MJ m-2 day-1',  # Daily accumulated solar radiation
+            'STRD': 'MJ m-2 day-1',  # Daily accumulated thermal radiation
             'SKT': 'K',
             'SNOWFALL': 'mm',
         }

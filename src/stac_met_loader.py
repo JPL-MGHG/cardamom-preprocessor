@@ -872,6 +872,21 @@ def assemble_unified_meteorology_dataset(
                 f"{len(reference_ds.coords['longitude'])} grid"
             )
             try:
+                # Check if longitude coordinate normalization is needed
+                if data_array.longitude.max() > 180:
+                    logger.debug(
+                        f"  Converting {var_name} longitude from 0-360° to -180°/+180° system"
+                    )
+                    # Convert longitude coordinates from 0-360° to -180° to +180°
+                    data_array = data_array.assign_coords(
+                        longitude=(data_array.longitude + 180) % 360 - 180
+                    ).sortby('longitude')
+                    logger.debug(
+                        f"  ✓ Normalized {var_name} longitude: "
+                        f"range {data_array.longitude.min().item():.2f}° to "
+                        f"{data_array.longitude.max().item():.2f}°"
+                    )
+
                 # Regrid to reference grid using linear interpolation
                 data_array = data_array.interp_like(reference_ds, method='linear')
                 logger.debug(

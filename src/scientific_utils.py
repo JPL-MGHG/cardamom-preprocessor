@@ -122,6 +122,11 @@ def convert_radiation_units(radiation_joules_per_m2: Union[float, np.ndarray],
     """
     Convert accumulated radiation from J/m² to W/m².
 
+    WARNING: This function is DEPRECATED for CARDAMOM preprocessing.
+    CARDAMOM CBF format requires MJ/m²/day, not W/m².
+
+    Use radiation_j_m2_to_mj_m2_day() instead for CARDAMOM workflows.
+
     ERA5 radiation data is often provided as accumulated values in J/m²
     and needs conversion to instantaneous flux in W/m².
 
@@ -133,11 +138,62 @@ def convert_radiation_units(radiation_joules_per_m2: Union[float, np.ndarray],
     Returns:
         Radiation flux in W/m²
             Typical range: 0-350 W/m² for solar radiation
+
+    Deprecated:
+        For CARDAMOM preprocessing, use radiation_j_m2_to_mj_m2_day() instead
     """
+    import warnings
+    warnings.warn(
+        "convert_radiation_units() produces W/m² which is incorrect for CARDAMOM CBF. "
+        "Use radiation_j_m2_to_mj_m2_day() instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+
     # Convert J/m² to W/m²: J/m² / (time_period_s) = W/m²
     radiation_watts_per_m2 = radiation_joules_per_m2 / time_period_seconds
 
     return radiation_watts_per_m2
+
+
+def radiation_j_m2_to_mj_m2_day(radiation_joules_per_m2: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+    """
+    Convert daily accumulated radiation from J/m² to MJ/m²/day for CARDAMOM.
+
+    This is the CORRECT conversion for CARDAMOM CBF format radiation variables.
+    CARDAMOM models daily carbon cycle processes and requires daily accumulated
+    radiation energy, not instantaneous power flux.
+
+    Scientific Background:
+    - ERA5 monthly_averaged_reanalysis provides mean daily accumulation in J/m²
+    - CARDAMOM requires this in MJ/m²/day for consistency with daily timestep
+    - This represents total radiation energy received per day, not power flux
+
+    Args:
+        radiation_joules_per_m2: Daily accumulated radiation in J/m²
+            Typical range for SSRD: 0-35,000,000 J/m²/day (0-35 MJ/m²/day)
+            Typical range for STRD: 0-45,000,000 J/m²/day (0-45 MJ/m²/day)
+
+    Returns:
+        Daily accumulated radiation in MJ/m²/day
+            Typical range for SSRD: 0-40 MJ/m²/day
+            Typical range for STRD: 0-50 MJ/m²/day
+
+    Example:
+        >>> # ERA5 solar radiation for a sunny day
+        >>> radiation_j = 25_000_000  # 25 MJ/m²/day
+        >>> radiation_mj = radiation_j_m2_to_mj_m2_day(radiation_j)
+        >>> print(f"{radiation_mj:.2f} MJ/m²/day")
+        25.00 MJ/m²/day
+
+    References:
+        - CARDAMOM CBF format specification
+        - ERA5 radiation documentation
+    """
+    joules_per_megajoule = 1_000_000
+    radiation_mj_m2_day = np.asarray(radiation_joules_per_m2) / joules_per_megajoule
+
+    return radiation_mj_m2_day
 
 
 def convert_carbon_flux_units(flux_gc_m2_day: Union[float, np.ndarray]) -> Union[float, np.ndarray]:

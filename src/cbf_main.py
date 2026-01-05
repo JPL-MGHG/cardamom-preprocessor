@@ -229,22 +229,20 @@ def get_pixel_data(dataset, lat, lon, var_name):
 def set_forcing_variables(target_ds, source_met_ds, lat, lon, scaffold_ds, positive_vars):
     """Sets forcing variables in the target dataset using source met data."""
     # Identify forcing variables present in the scaffold (excluding time, lat, lon etc.)
-    # Original code used list(Main_scaffold.data_vars)[1:11]] - this is fragile.
-    # Let's assume forcing vars are those present in MET_VARS_TO_KEEP that are also in scaffold_ds
     forcing_vars_in_scaffold = [v for v in MET_VARS_TO_KEEP if v in scaffold_ds.data_vars]
 
-    time_coord = target_ds.time  # Get time coordinate from target
+    # Use the correct time coordinate (target_ds now already has meteorological time)
+    time_coord = target_ds.time
 
     for var_name in forcing_vars_in_scaffold:
         pixel_data = get_pixel_data(source_met_ds, lat, lon, var_name)
         if pixel_data is not None:
-            # Ensure data aligns with target time dimension if necessary
-            # Assuming source data time implicitly matches scaffold time structure
+            # Create DataArray with meteorological data's time coordinate
             target_ds[var_name] = xr.DataArray(
                 data=pixel_data.data,
                 coords={'time': time_coord},
                 dims=['time'],
-                attrs=scaffold_ds[var_name].attrs  # Copy attributes
+                attrs=scaffold_ds[var_name].attrs if var_name in scaffold_ds else {}  # Copy attributes
             )
             # Ensure positivity constraints
             if var_name in positive_vars:
@@ -263,14 +261,36 @@ def set_forcing_variables(target_ds, source_met_ds, lat, lon, scaffold_ds, posit
 
 def set_observation_constraints(target_ds, source_obs_ds, lat, lon, scaffold_ds, constraint_vars, attr_copy_vars):
     """Sets observational constraints in the target dataset."""
+    # Use the updated time coordinate from target_ds (which now matches meteorological data)
     time_coord = target_ds.time
 
     for var_name in constraint_vars:
         if var_name in source_obs_ds:
             pixel_data = get_pixel_data(source_obs_ds, lat, lon, var_name)
             if pixel_data is not None:
+                # Handle time dimension mismatch with simple NaN-filling approach
+                obs_data_values = pixel_data.data if hasattr(pixel_data, 'data') else pixel_data.values
+                met_time_steps = len(time_coord)
+
+                # Check if obs data has time dimension
+                if len(obs_data_values.shape) == 0:
+                    # Scalar data - broadcast to time dimension
+                    final_data = np.full(met_time_steps, obs_data_values)
+                elif len(obs_data_values) == met_time_steps:
+                    # Perfect match - use as is
+                    final_data = obs_data_values
+                elif len(obs_data_values) < met_time_steps:
+                    # Less data than needed - fill with NaNs
+                    logger.warning(f"Obs data {var_name} has {len(obs_data_values)} time steps, need {met_time_steps}. Filling missing with NaN.")
+                    final_data = np.full(met_time_steps, np.nan)
+                    final_data[:len(obs_data_values)] = obs_data_values
+                else:
+                    # More data than needed - truncate
+                    logger.warning(f"Obs data {var_name} has {len(obs_data_values)} time steps, need {met_time_steps}. Truncating excess data.")
+                    final_data = obs_data_values[:met_time_steps]
+
                 target_ds[var_name] = xr.DataArray(
-                    data=pixel_data.data,
+                    data=final_data,
                     coords={'time': time_coord},
                     dims=['time']
                 )
@@ -578,13 +598,34 @@ def generate_cbf_files(
                         f"Lat={real_lat:.2f}, Lon={real_lon:.2f}")
 
             # Create pixel-specific CBF dataset
-            # a. Copy scaffold and drop unwanted variables
+            # CRITICAL: Use meteorological data's time coordinate, not scaffold's time coordinate
+
+            # a. Copy scaffold but replace time coordinate with meteorological time
             vars_to_drop = [
                 v
                 for v in scaffold_ds.data_vars
                 if any(x in v for x in ['val', 'ET', 'NBE', 'LAI', 'Ceff'])
             ]
-            pixel_ds = scaffold_ds.copy().drop_vars(vars_to_drop)
+
+            # Create new dataset with meteorological time coordinate
+            scaffold_copy = scaffold_ds.copy().drop_vars(vars_to_drop)
+
+            # Remove all time-dependent variables and the old time coordinate
+            time_dependent_vars = [v for v in scaffold_copy.data_vars if 'time' in scaffold_copy[v].dims]
+            if time_dependent_vars:
+                scaffold_copy = scaffold_copy.drop_vars(time_dependent_vars)
+
+            # Create new dataset with meteorological time coordinate
+            pixel_ds = xr.Dataset(
+                coords={
+                    'time': met_data.time,
+                    **{k: v for k, v in scaffold_copy.coords.items() if k != 'time'}
+                }
+            )
+
+            # Add non-time-dependent variables from scaffold
+            for var_name in scaffold_copy.data_vars:
+                pixel_ds[var_name] = scaffold_copy[var_name]
 
             # b. Set basic metadata
             pixel_ds['LAT'] = real_lat

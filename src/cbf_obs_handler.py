@@ -144,6 +144,22 @@ def load_observational_data_with_nan_fill(
         except Exception as e:
             logger.warning(f"Could not add Mean_FIR to obs dataset: {e}")
 
+    # Apply variable renaming to match CBF generation expectations
+    # Original obs data has 'ModLAI' and 'GPPFluxSat' but CBF code expects 'LAI' and 'GPP'
+    obs_rename_map = {
+        'ModLAI': 'LAI',
+        'GPPFluxSat': 'GPP'
+    }
+
+    variables_to_rename = {}
+    for old_name, new_name in obs_rename_map.items():
+        if old_name in combined_dataset.data_vars:
+            variables_to_rename[old_name] = new_name
+            logger.debug(f"Renaming {old_name} -> {new_name}")
+
+    if variables_to_rename:
+        combined_dataset = combined_dataset.rename(variables_to_rename)
+
     logger.info(f"Observational data ready: {list(combined_dataset.data_vars)}")
 
     return combined_dataset
