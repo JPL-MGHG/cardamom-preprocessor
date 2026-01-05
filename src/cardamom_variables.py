@@ -85,30 +85,32 @@ CARDAMOM_VARIABLE_REGISTRY: Dict[str, Dict[str, Any]] = {
         'source': 'era5',
         'alternative_names': ['ssrd', 'SSRD'],
         'cbf_names': ['SSRD'],
-        'units': {'source': 'J m-2', 'cbf': 'W m-2'},
-        'unit_conversion': {'method': 'radiation_monthly'},
+        'units': {'source': 'J m-2', 'cbf': 'MJ m-2 day-1'},
+        'unit_conversion': {'method': 'radiation_monthly_to_mj'},
         'interpolation_method': 'linear',
         'spatial_nature': 'continuous',
-        'description': 'Downward surface solar radiation',
-        'physical_range': (0, 1000),  # W m-2
+        'description': 'Downward surface solar radiation (daily accumulation)',
+        'physical_range': (0, 40),  # MJ m-2 day-1
         'enforce_positive': True,
         'essential': True,
-        'era5_product_type': 'monthly_averaged_reanalysis'
+        'era5_product_type': 'monthly_averaged_reanalysis',
+        'processing_notes': 'ERA5 J/m²/day converted to MJ/m²/day for CARDAMOM CBF format'
     },
 
     'surface_thermal_radiation_downwards': {
         'source': 'era5',
         'alternative_names': ['strd', 'STRD'],
         'cbf_names': ['STRD'],
-        'units': {'source': 'J m-2', 'cbf': 'W m-2'},
-        'unit_conversion': {'method': 'radiation_monthly'},
+        'units': {'source': 'J m-2', 'cbf': 'MJ m-2 day-1'},
+        'unit_conversion': {'method': 'radiation_monthly_to_mj'},
         'interpolation_method': 'linear',
         'spatial_nature': 'continuous',
-        'description': 'Downward surface thermal radiation',
-        'physical_range': (0, 600),  # W m-2
+        'description': 'Downward surface thermal radiation (daily accumulation)',
+        'physical_range': (0, 50),  # MJ m-2 day-1
         'enforce_positive': True,
         'essential': True,
-        'era5_product_type': 'monthly_averaged_reanalysis'
+        'era5_product_type': 'monthly_averaged_reanalysis',
+        'processing_notes': 'ERA5 J/m²/day converted to MJ/m²/day for CARDAMOM CBF format'
     },
 
     'snowfall': {
