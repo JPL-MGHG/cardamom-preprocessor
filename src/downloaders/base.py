@@ -365,14 +365,21 @@ class BaseDownloader(ABC):
         # Create STAC Items
         items = []
         for item_data in items_data:
+            # Build absolute path for NetCDF inspection
+            # item_data['data_file_path'] is like 'data/co2_1980_2025.nc'
+            # We need the absolute path for temporal metadata extraction
+            data_file_relative = item_data['data_file_path']
+            netcdf_absolute_path = self.output_directory / data_file_relative.replace('data/', self.data_subdir + '/')
+
             item = create_stac_item(
                 variable_name=item_data['variable_name'],
-                year=item_data['year'],
-                month=item_data['month'],
                 data_file_path=item_data['data_file_path'],
                 collection_id=collection_id,
+                year=item_data.get('year'),
+                month=item_data.get('month'),
                 bbox=item_data.get('bbox'),
                 properties=item_data.get('properties'),
+                netcdf_file_path_for_inspection=str(netcdf_absolute_path),
             )
             items.append(item)
 

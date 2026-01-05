@@ -80,6 +80,7 @@ class GFEDDownloader(BaseDownloader):
         sftp_username: Optional[str] = None,
         sftp_password: Optional[str] = None,
         land_mask_threshold: float = 0.5,
+        land_sea_mask_file: str = 'matlab-migration/sample-data-from-eren/CARDAMOM-MAPS_05deg_LAND_SEA_FRAC.nc',
     ):
         """
         Initialize GFED downloader.
@@ -97,6 +98,7 @@ class GFEDDownloader(BaseDownloader):
             sftp_username (Optional[str]): SFTP username. If None, reads from GFED_SFTP_USERNAME env var
             sftp_password (Optional[str]): SFTP password. If None, reads from GFED_SFTP_PASSWORD env var
             land_mask_threshold (float): Land fraction threshold. Default: 0.5
+            land_sea_mask_file (str): Path to land-sea mask NetCDF file. Default: CARDAMOM 0.5° MODIS-based mask
 
         Raises:
             ValueError: If SFTP credentials are not provided
@@ -108,23 +110,20 @@ class GFEDDownloader(BaseDownloader):
         self.sftp_port = sftp_port
 
         # Get credentials from arguments or environment variables
+        # Note: Credentials are validated lazily when SFTP operations are needed,
+        # not during initialization. This allows post-processing operations
+        # (like climatology generation) to work without SFTP credentials.
         self.sftp_username = sftp_username or os.getenv('GFED_SFTP_USERNAME')
         self.sftp_password = sftp_password or os.getenv('GFED_SFTP_PASSWORD')
 
-        if not self.sftp_username or not self.sftp_password:
-            raise ValueError(
-                "SFTP credentials required. Provide via constructor arguments "
-                "(sftp_username, sftp_password) or environment variables "
-                "(GFED_SFTP_USERNAME, GFED_SFTP_PASSWORD)"
-            )
-
         self.land_mask_threshold = land_mask_threshold
+        self.land_sea_mask_file = land_sea_mask_file
 
         # Caching
         self._land_mask_cache = None
         self._climatology_cache = None
 
-        logger.info("GFED downloader initialized (SFTP mode)")
+        logger.info("GFED downloader initialized")
 
     def _download_gfed_yearly_file_sftp(self, year: int) -> Path:
         """
@@ -139,7 +138,16 @@ class GFEDDownloader(BaseDownloader):
         Raises:
             ConnectionError: If SFTP connection fails
             FileNotFoundError: If file not found on server
+            ValueError: If SFTP credentials are not available
         """
+
+        # Validate SFTP credentials are available
+        if not self.sftp_username or not self.sftp_password:
+            raise ValueError(
+                "SFTP credentials required for download. Provide via constructor arguments "
+                "(sftp_username, sftp_password) or environment variables "
+                "(GFED_SFTP_USERNAME, GFED_SFTP_PASSWORD)"
+            )
 
         # Determine filename based on year
         if year <= 2016:
@@ -448,10 +456,7 @@ class GFEDDownloader(BaseDownloader):
 
         return fire_emissions_daily
 
-    def _load_land_sea_mask_05deg(
-        self,
-        mask_file_path: str = 'matlab-migration/sample-data-from-eren/CARDAMOM-MAPS_05deg_LAND_SEA_FRAC.nc'
-    ) -> np.ndarray:
+    def _load_land_sea_mask_05deg(self) -> np.ndarray:
         """
         Load 0.5° resolution MODIS-based land-sea mask for CARDAMOM.
 
@@ -465,10 +470,6 @@ class GFEDDownloader(BaseDownloader):
         land fraction values (0 = 100% ocean, 1 = 100% land). A threshold of 0.5
         is used to classify pixels as predominantly land or ocean.
 
-        Args:
-            mask_file_path (str): Path to land-sea mask NetCDF file.
-                Default: CARDAMOM 0.5° MODIS-based mask
-
         Returns:
             np.ndarray: Land-sea mask with shape (360, 720)
                 Values: 1 = land (fraction > 0.5), 0 = ocean (fraction <= 0.5)
@@ -477,15 +478,15 @@ class GFEDDownloader(BaseDownloader):
             FileNotFoundError: If mask file doesn't exist
             ValueError: If mask has wrong dimensions
         """
-        mask_path = Path(mask_file_path)
+        mask_path = Path(self.land_sea_mask_file)
 
         if not mask_path.exists():
             raise FileNotFoundError(
-                f"Land-sea mask file not found: {mask_file_path}. "
+                f"Land-sea mask file not found: {self.land_sea_mask_file}. "
                 f"Expected MODIS-based 0.5° land-sea fraction mask."
             )
 
-        logger.info(f"Loading land-sea mask from: {mask_file_path}")
+        logger.info(f"Loading land-sea mask from: {self.land_sea_mask_file}")
 
         # Load mask using xarray
         ds_mask = xr.load_dataset(mask_path)
@@ -745,6 +746,10 @@ class GFEDDownloader(BaseDownloader):
         burned_area_025 = np.full((720, 1440, n_months), np.nan)
         fire_emissions_025 = np.full((720, 1440, n_months), np.nan)
 
+        # Initialize coordinate arrays (will be overwritten on first successful month)
+        latitude_025 = np.linspace(-89.875, 89.875, 720)  # Default GFED 0.25° grid
+        longitude_025 = np.linspace(-179.875, 179.875, 1440)
+
         # Step 1-2: Download and extract data for all years
         month_idx = 0
         for year in range(start_year, end_year + 1):
@@ -759,9 +764,31 @@ class GFEDDownloader(BaseDownloader):
 
             # Extract all 12 months for this year
             for month in range(1, 13):
-                variables = self._extract_gfed_variables_from_hdf5(gfed_file, year, month)
+                try:
+                    variables = self._extract_gfed_variables_from_hdf5(gfed_file, year, month)
+                except (KeyError, OSError, ValueError) as e:
+                    # Skip corrupted months (e.g., corrupted HDF5 headers in some GFED4.1s files)
+                    logger.warning(
+                        f"Could not extract data for {year}-{month:02d} due to "
+                        f"{type(e).__name__}: {str(e)[:80]}. "
+                        f"Skipping this month - data will be NaN."
+                    )
+                    # Data remains NaN in pre-initialized arrays
+                    month_idx += 1
+                    # Still store coordinates if this is the first valid month
+                    if month == 1 and year == start_year and month_idx == 1:
+                        # Try to extract coordinates from this file at least
+                        try:
+                            with h5py.File(gfed_file, 'r') as hf:
+                                lat_2d = np.array(hf['lat'])
+                                lon_2d = np.array(hf['lon'])
+                                latitude_025 = lat_2d[:, 0]
+                                longitude_025 = lon_2d[0, :]
+                        except Exception:
+                            pass  # Use default coordinates
+                    continue
 
-                # Store fire emissions (always available)
+                # Store fire emissions (always available if extraction succeeded)
                 fire_emissions_025[:, :, month_idx] = variables['fire_emissions']
 
                 # Store burned area (only available for 2001-2016)
@@ -770,7 +797,7 @@ class GFEDDownloader(BaseDownloader):
 
                 month_idx += 1
 
-                # Store coordinates from first month
+                # Store coordinates from first successful month
                 if month == 1 and year == start_year:
                     latitude_025 = variables['latitude']
                     longitude_025 = variables['longitude']
@@ -847,8 +874,11 @@ class GFEDDownloader(BaseDownloader):
 
         # Step 7: Create coordinate arrays for NetCDF
         logger.info("Creating coordinate arrays for NetCDF output...")
-        latitude_05deg = latitude_025[::2]  # Downsample from 0.25° to 0.5°
-        longitude_05deg = longitude_025[::2]
+        # Create proper 0.5° grid coordinates (standard GFED 0.5° resolution)
+        # Latitude: -89.75 to 89.75 in steps of 0.5
+        # Longitude: -179.75 to 179.75 in steps of 0.5
+        latitude_05deg = np.linspace(-89.75, 89.75, 360)
+        longitude_05deg = np.linspace(-179.75, 179.75, 720)
 
         # Step 8: Write yearly NetCDF files and create STAC items
         logger.info("Writing yearly NetCDF files for burned area and fire emissions...")
@@ -1063,4 +1093,161 @@ class GFEDDownloader(BaseDownloader):
             'success': False,
             'message': 'Single-month mode not fully implemented. Use download_and_process_batch().',
             'data': variables,
+        }
+
+    def generate_climatology(
+        self,
+        input_data_dir: str,
+        reference_start_year: int,
+        reference_end_year: int,
+        variables: Optional[list] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate climatological mean files from GFED time series data.
+
+        Computes temporal mean across all years and months for specified variables.
+        Output format matches existing CARDAMOM climatology files (e.g., Mean_FIR.nc).
+
+        Scientific Background:
+        Climatological means provide long-term average fire emissions rates used as
+        single-value constraints in CARDAMOM carbon cycle modeling. This method
+        computes the temporal mean across a reference period to create a spatially-
+        explicit climatology.
+
+        Args:
+            input_data_dir (str): Directory containing burned_area_YYYY.nc and fire_emissions_YYYY.nc
+            reference_start_year (int): First year for climatology calculation
+            reference_end_year (int): Last year for climatology calculation
+            variables (list): Variables to process (default: ['FIRE_C', 'BURNED_AREA'])
+
+        Returns:
+            dict: Results with output_files, variables, reference_period, success
+        """
+        if variables is None:
+            variables = ['FIRE_C', 'BURNED_AREA']
+
+        logger.info(f"Generating climatology for variables: {variables}")
+
+        input_path = Path(input_data_dir)
+        if not input_path.exists():
+            raise FileNotFoundError(f"Input directory not found: {input_data_dir}")
+
+        output_files = []
+
+        # Process each variable
+        for var in variables:
+            if var == 'FIRE_C':
+                # Find fire emissions files
+                pattern = 'fire_emissions_*.nc'
+                output_filename = 'CARDAMOM-MAPS_05deg_GFED4_Mean_FIR.nc'
+                var_name_in_file = 'FIRE_C'
+                output_var_name = 'data'  # Match existing format
+                units = 'gC m-2 d-1'
+                variable_info = 'Mean Fire from GFED4'
+
+            elif var == 'BURNED_AREA':
+                # Find burned area files
+                pattern = 'burned_area_*.nc'
+                output_filename = 'CARDAMOM-MAPS_05deg_GFED4_Mean_BA.nc'
+                var_name_in_file = 'BURNED_AREA'
+                output_var_name = 'data'  # Match existing format
+                units = 'fraction'
+                variable_info = 'Mean Burned Area from GFED4'
+
+            else:
+                logger.warning(f"Unknown variable {var}, skipping")
+                continue
+
+            # Find matching files
+            file_list = sorted(input_path.glob(pattern))
+
+            # Filter by year range
+            files_in_range = []
+            for file in file_list:
+                # Extract year from filename (e.g., fire_emissions_2016.nc -> 2016)
+                year_str = file.stem.split('_')[-1]
+                try:
+                    year = int(year_str)
+                    if reference_start_year <= year <= reference_end_year:
+                        files_in_range.append(file)
+                except ValueError:
+                    logger.warning(f"Could not extract year from {file.name}")
+                    continue
+
+            if not files_in_range:
+                logger.warning(f"No files found for {var} in range {reference_start_year}-{reference_end_year}")
+                continue
+
+            logger.info(f"Processing {len(files_in_range)} files for {var}")
+
+            # Load all files
+            datasets = [xr.open_dataset(f) for f in files_in_range]
+
+            # Concatenate along time dimension
+            combined = xr.concat(datasets, dim='time')
+
+            # Compute temporal mean (across all years and months)
+            mean_data = combined[var_name_in_file].mean(dim='time')
+
+            # Create output dataset matching existing format
+            # NOTE: Existing format has dimensions (longitude, latitude) NOT (latitude, longitude)!
+            ds_out = xr.Dataset(
+                {
+                    output_var_name: (
+                        ['longitude', 'latitude'],  # Dimension order matches existing file
+                        mean_data.values.T,  # Transpose from (lat, lon) to (lon, lat)
+                        {
+                            'units': units,
+                            'variable_info': variable_info,
+                        }
+                    )
+                },
+                coords={
+                    'longitude': (['longitude'], mean_data.longitude.values, {'units': 'degrees'}),
+                    'latitude': (['latitude'], mean_data.latitude.values, {'units': 'degrees'}),
+                },
+            )
+
+            # Write to NetCDF
+            output_file = self.output_directory / 'data' / output_filename
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+
+            ds_out.to_netcdf(
+                output_file,
+                encoding={
+                    output_var_name: {
+                        'dtype': 'float64',  # Match existing format
+                        '_FillValue': None,  # No fill value in original
+                    }
+                }
+            )
+
+            logger.info(f"Wrote climatology: {output_file}")
+
+            # Statistics
+            n_non_nan = np.sum(~np.isnan(mean_data.values))
+            mean_val = np.nanmean(mean_data.values)
+            min_val = np.nanmin(mean_data.values)
+            max_val = np.nanmax(mean_data.values)
+
+            logger.info(
+                f"  {var} climatology stats: "
+                f"non-NaN pixels={int(n_non_nan)}, "
+                f"mean={mean_val:.6f}, "
+                f"min={min_val:.6f}, "
+                f"max={max_val:.6f}"
+            )
+
+            output_files.append(output_file)
+
+            # Close datasets
+            for ds in datasets:
+                ds.close()
+            ds_out.close()
+
+        return {
+            'output_files': output_files,
+            'variables': variables,
+            'reference_period': f'{reference_start_year}-{reference_end_year}',
+            'success': True,
         }

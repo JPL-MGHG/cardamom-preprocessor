@@ -117,7 +117,6 @@ class ECMWFDownloader(BaseDownloader):
             f"No recognized time dimension found in dataset. "
             f"Available dimensions: {list(dataset.dims.keys())}"
         )
-
     def _resolve_variable_dependencies(
         self, variables: List[str]
     ) -> Dict[str, List[str]]:
