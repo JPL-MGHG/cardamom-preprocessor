@@ -232,7 +232,68 @@ def create_gfed_parser(subparsers) -> None:
              '(default: update - replace existing items with new data)'
     )
 
+    parser.add_argument(
+        '--land-sea-mask-file',
+        type=str,
+        default='matlab-migration/sample-data-from-eren/CARDAMOM-MAPS_05deg_LAND_SEA_FRAC.nc',
+        help='Path to land-sea mask NetCDF file (default: CARDAMOM 0.5° MODIS-based mask)'
+    )
+
     parser.set_defaults(func=handle_gfed_download)
+
+
+def create_gfed_climatology_parser(subparsers) -> None:
+    """Create GFED climatology generator subcommand."""
+
+    parser = subparsers.add_parser(
+        'gfed-climatology',
+        help='Generate GFED climatology files from time series data',
+        description='Compute climatological mean fire emissions and burned area from GFED data. '
+                    'Requires existing GFED NetCDF files (yearly files from gfed command).'
+    )
+
+    parser.add_argument(
+        '--input-data-dir',
+        type=str,
+        required=True,
+        help='Directory containing GFED NetCDF files (burned_area_YYYY.nc, fire_emissions_YYYY.nc)'
+    )
+
+    parser.add_argument(
+        '--output',
+        type=str,
+        required=True,
+        help='Output directory for climatology files'
+    )
+
+    parser.add_argument(
+        '--reference-start-year',
+        type=int,
+        default=2001,
+        help='First year for climatology calculation (default: 2001)'
+    )
+
+    parser.add_argument(
+        '--reference-end-year',
+        type=int,
+        default=2024,
+        help='Last year for climatology calculation (default: 2024)'
+    )
+
+    parser.add_argument(
+        '--variables',
+        type=str,
+        default='FIRE_C,BURNED_AREA',
+        help='Variables to process (comma-separated, default: FIRE_C,BURNED_AREA)'
+    )
+
+    parser.add_argument(
+        '--verbose',
+        action='store_true',
+        help='Print debug information'
+    )
+
+    parser.set_defaults(func=handle_gfed_climatology_generate)
 
 
 def create_cbf_parser(subparsers) -> None:
@@ -273,6 +334,41 @@ def create_cbf_parser(subparsers) -> None:
         type=str,
         required=True,
         help='Output directory path'
+    )
+
+    parser.add_argument(
+        '--land-fraction-file',
+        type=str,
+        default=None,
+        help='Path to land fraction mask file (NetCDF). If not provided, uses input/CARDAMOM-MAPS_05deg_LAND_SEA_FRAC.nc'
+    )
+
+    parser.add_argument(
+        '--obs-driver-file',
+        type=str,
+        default=None,
+        help='Path to observational constraints driver file (NetCDF). If not provided, uses input/AlltsObs05x05newbiomass_LFmasked.nc'
+    )
+
+    parser.add_argument(
+        '--som-file',
+        type=str,
+        default=None,
+        help='Path to soil organic matter initialization file (NetCDF). If not provided, uses input/CARDAMOM-MAPS_05deg_HWSD_PEQ_iniSOM.nc'
+    )
+
+    parser.add_argument(
+        '--fir-file',
+        type=str,
+        default=None,
+        help='Path to fire emissions file (NetCDF). If not provided, uses input/CARDAMOM-MAPS_05deg_GFED4_Mean_FIR.nc'
+    )
+
+    parser.add_argument(
+        '--scaffold-file',
+        type=str,
+        default=None,
+        help='Path to CBF scaffold template file (NetCDF). If not provided, uses input/fluxval_US-NR1_1100_LAI.cbf.nc'
     )
 
     parser.add_argument(
@@ -398,6 +494,7 @@ def handle_gfed_download(args) -> int:
             output_directory=args.output,
             keep_raw_files=args.keep_raw,
             verbose=args.verbose,
+            land_sea_mask_file=args.land_sea_mask_file,
         )
 
         # Download and process in batch mode (yearly files)
@@ -430,6 +527,45 @@ def handle_gfed_download(args) -> int:
         return 1
 
 
+def handle_gfed_climatology_generate(args) -> int:
+    """Handle GFED climatology generation."""
+
+    try:
+        logger.info(
+            f"Generating GFED climatology from years "
+            f"{args.reference_start_year}-{args.reference_end_year}"
+        )
+
+        # Parse variables
+        variables = [v.strip() for v in args.variables.split(',')]
+        logger.info(f"Computing climatology for variables: {variables}")
+
+        # Create climatology generator
+        downloader = GFEDDownloader(
+            output_directory=args.output,
+            verbose=args.verbose,
+        )
+
+        # Generate climatology
+        results = downloader.generate_climatology(
+            input_data_dir=args.input_data_dir,
+            reference_start_year=args.reference_start_year,
+            reference_end_year=args.reference_end_year,
+            variables=variables,
+        )
+
+        logger.info(f"✓ Climatology generation successful")
+        logger.info(f"  Generated {len(results['output_files'])} files")
+        logger.info(f"  Reference period: {results['reference_period']}")
+        logger.info(f"  Output directory: {args.output}")
+
+        return 0
+
+    except Exception as e:
+        logger.error(f"✗ Climatology generation failed: {e}", exc_info=args.verbose)
+        return 1
+
+
 def handle_cbf_generate(args) -> int:
     """Handle CBF generator invocation."""
 
@@ -446,6 +582,11 @@ def handle_cbf_generate(args) -> int:
             start_date=args.start,
             end_date=args.end,
             output_directory=args.output,
+            land_frac_file=args.land_fraction_file,
+            obs_driver_file=args.obs_driver_file,
+            som_file=args.som_file,
+            fir_file=args.fir_file,
+            scaffold_file=args.scaffold_file,
             # region parameter not yet implemented in generate_cbf_files
             # For now, use default CONUS region from cbf_main constants
         )
@@ -494,6 +635,15 @@ Examples:
   %(prog)s cbf-generate --stac-api https://stac.maap.org \\
     --start 2020-01 --end 2020-12 --region conus --output ./cbf
 
+  # Generate CBF files with custom input files
+  %(prog)s cbf-generate --stac-api file://./output/catalog.json \\
+    --start 2020-01 --end 2020-12 --output ./cbf \\
+    --land-fraction-file ./DATA/sample_data/CARDAMOM-MAPS_05deg_LAND_SEA_FRAC.nc \\
+    --obs-driver-file ./DATA/sample_data/AlltsObs05x05newbiomass_LFmasked.nc \\
+    --som-file ./DATA/sample_data/CARDAMOM-MAPS_05deg_HWSD_PEQ_iniSOM.nc \\
+    --fir-file ./DATA/sample_data/CARDAMOM-MAPS_05deg_GFED4_Mean_FIR.nc \\
+    --scaffold-file ./DATA/sample_data/fluxval_US-NR1_1100_LAI.cbf.nc
+
 For more information, see the STAC-Based Architecture Plan in plans/
         '''
     )
@@ -509,6 +659,7 @@ For more information, see the STAC-Based Architecture Plan in plans/
     create_ecmwf_parser(subparsers)
     create_noaa_parser(subparsers)
     create_gfed_parser(subparsers)
+    create_gfed_climatology_parser(subparsers)
     create_cbf_parser(subparsers)
 
     # Parse arguments
