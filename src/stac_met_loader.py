@@ -21,6 +21,7 @@ drive photosynthesis, respiration, and carbon flux calculations.
 """
 
 import logging
+import os
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 import numpy as np
@@ -787,6 +788,8 @@ def _subset_meteorology_to_time_range(
 
 def assemble_unified_meteorology_dataset(
     met_data: Dict[str, xr.Dataset],
+    landmask_file_path: str = None,
+    land_fraction_threshold: float = 0.5,
 ) -> xr.Dataset:
     """
     Assemble individual meteorological variables into unified dataset.
@@ -805,6 +808,12 @@ def assemble_unified_meteorology_dataset(
     Args:
         met_data (Dict[str, xr.Dataset]): Dictionary mapping variable names
             to their datasets
+        landmask_file_path (str, optional): Path to land fraction NetCDF file.
+            If provided, applies land-sea mask to set ocean pixels to NaN.
+            Default: None (no masking applied)
+        land_fraction_threshold (float, optional): Threshold for land classification.
+            Pixels with land_fraction > threshold are kept as land.
+            Default: 0.5 (matching CARDAMOM standards)
 
     Returns:
         xr.Dataset: Unified meteorology dataset with all variables and coordinates
@@ -925,13 +934,205 @@ def assemble_unified_meteorology_dataset(
         f"grid=0.5° (land fraction masked ready)"
     )
 
+    # Step 4: Apply land-sea mask if provided
+    if landmask_file_path is not None:
+        logger.info("Applying land-sea mask to unified dataset")
+        try:
+            combined_dataset = apply_land_sea_mask_to_meteorology(
+                unified_met_dataset=combined_dataset,
+                landmask_file_path=landmask_file_path,
+                land_fraction_threshold=land_fraction_threshold,
+            )
+        except Exception as e:
+            logger.error(f"Failed to apply land-sea mask: {e}")
+            logger.warning("Returning unmasked meteorology dataset")
+            # Continue without masking rather than failing completely
+    else:
+        logger.warning(
+            "No land fraction mask file provided - returning unmasked meteorology. "
+            "Ocean pixels will NOT be set to NaN."
+        )
+
     return combined_dataset
+
+
+def apply_land_sea_mask_to_meteorology(
+    unified_met_dataset: xr.Dataset,
+    landmask_file_path: str,
+    land_fraction_threshold: float = 0.5,
+) -> xr.Dataset:
+    """
+    Apply land-sea mask to meteorological dataset following CARDAMOM standards.
+
+    Sets ocean pixels to NaN while preserving land pixel values. This approach
+    matches the MATLAB workflow and ensures meteorological data only includes
+    valid land measurements for carbon cycle modeling.
+
+    Scientific Context:
+    The land-sea mask is derived from MODIS land-water classification at 0.5°
+    resolution. A threshold-based binary mask identifies pixels as ocean (fraction ≤0.5)
+    or land (fraction >0.5). Ocean pixels are set to NaN since CARDAMOM models
+    terrestrial carbon dynamics only.
+
+    GFED variables (BURNED_AREA, FIRE_C) are skipped because they are already
+    masked during download with fire-specific logic (ocean→NaN, land-fire-free→0).
+
+    ERA5 meteorological variables use simpler logic:
+    - Ocean pixels → NaN (no data over ocean)
+    - Land pixels → Preserve original value (temperature, radiation, etc.)
+
+    Args:
+        unified_met_dataset (xr.Dataset): Meteorology dataset with all variables
+            Expected dimensions: (time, latitude, longitude) or (latitude, longitude)
+            Expected variables: VPD, T2M_MIN, T2M_MAX, TOTAL_PREC, SSRD, STRD,
+                               SKT, SNOWFALL, CO2, BURNED_AREA (optional)
+
+        landmask_file_path (str): Path to land fraction NetCDF file
+            Expected format: NetCDF with 'data' variable (longitude=720, latitude=360)
+            Expected resolution: 0.5° global grid
+            Expected values: 0.0 (ocean) to 1.0 (land)
+            Example: 'DATA/sample_data/CARDAMOM-MAPS_05deg_LAND_SEA_FRAC.nc'
+
+        land_fraction_threshold (float): Threshold for land classification
+            Pixels with land_fraction > threshold are considered land (kept)
+            Pixels with land_fraction ≤ threshold are considered ocean (set to NaN)
+            Default: 0.5 (matching GFED downloader and CBF generation)
+            Typical range: 0.3-0.7
+
+    Returns:
+        xr.Dataset: Meteorology dataset with land-sea mask applied
+            Ocean pixels are NaN for all ERA5 variables
+            GFED variables unchanged (already masked)
+            Land pixels retain original values
+            All attributes, coordinates, and dimensions preserved
+
+    Raises:
+        FileNotFoundError: If landmask file does not exist
+        ValueError: If grid dimensions don't match (expected 360×720 at 0.5°)
+        KeyError: If 'data' variable not found in landmask file
+
+    References:
+        GFED masking implementation: downloaders/gfed_downloader.py lines 518-627
+        MATLAB reference: CARDAMOM/MATLAB/prototypes/CARDAMOM_MAPS_05deg_DATASETS_JUL24.m
+    """
+
+    logger.info("Applying land-sea mask to meteorological dataset")
+    logger.info(f"  Landmask file: {landmask_file_path}")
+    logger.info(f"  Land fraction threshold: {land_fraction_threshold}")
+
+    # Step 1: Load and validate land fraction mask
+    if not os.path.exists(landmask_file_path):
+        raise FileNotFoundError(
+            f"Land fraction mask file not found: {landmask_file_path}. "
+            f"Ensure the file exists and path is correct."
+        )
+
+    try:
+        ds_mask = xr.open_dataset(landmask_file_path)
+    except Exception as e:
+        raise RuntimeError(f"Failed to load land fraction mask file: {e}")
+
+    if 'data' not in ds_mask:
+        available_vars = list(ds_mask.data_vars)
+        ds_mask.close()
+        raise KeyError(
+            f"Expected 'data' variable in land fraction file. "
+            f"Available variables: {available_vars}"
+        )
+
+    # Step 2: Extract and transpose land fraction data
+    # File format: (longitude=720, latitude=360) → Transpose to (latitude=360, longitude=720)
+    land_fraction_values = ds_mask['data'].values.T  # Transpose to (lat, lon)
+    ds_mask.close()
+
+    expected_shape = (360, 720)  # 0.5° global grid
+    if land_fraction_values.shape != expected_shape:
+        raise ValueError(
+            f"Land fraction mask has unexpected shape: {land_fraction_values.shape}. "
+            f"Expected {expected_shape} for 0.5° global grid (360 lat × 720 lon). "
+            f"Ensure land fraction file matches meteorology resolution."
+        )
+
+    # Step 3: Create binary land mask
+    land_mask_2d = (land_fraction_values > land_fraction_threshold).astype(float)
+
+    num_land_pixels = np.sum(land_mask_2d == 1)
+    num_ocean_pixels = np.sum(land_mask_2d == 0)
+    land_percentage = (num_land_pixels / land_mask_2d.size) * 100
+
+    logger.info(f"  Land mask statistics:")
+    logger.info(f"    Land pixels: {num_land_pixels:,} ({land_percentage:.1f}%)")
+    logger.info(f"    Ocean pixels: {num_ocean_pixels:,} ({100-land_percentage:.1f}%)")
+
+    # Step 4: Identify variables to mask
+    # Skip GFED variables (already masked) and CO2 (global coverage)
+    variables_to_skip = {'BURNED_AREA', 'FIRE_C', 'CO2'}
+    variables_to_mask = [
+        var for var in unified_met_dataset.data_vars
+        if var not in variables_to_skip
+    ]
+
+    logger.info(f"  Variables to mask: {variables_to_mask}")
+    if any(var in unified_met_dataset.data_vars for var in variables_to_skip):
+        skipped = [var for var in variables_to_skip if var in unified_met_dataset.data_vars]
+        logger.info(f"  Variables skipped (already masked): {skipped}")
+
+    # Step 5: Apply masking to each variable
+    masked_dataset = unified_met_dataset.copy(deep=True)
+
+    for var_name in variables_to_mask:
+        data_array = masked_dataset[var_name]
+
+        # Check if variable has time dimension
+        if 'time' in data_array.dims:
+            # 3D variable (time, latitude, longitude)
+            n_time_steps = data_array.shape[0]
+
+            # Broadcast 2D mask to 3D (time, lat, lon)
+            land_mask_3d = np.repeat(
+                land_mask_2d[np.newaxis, :, :],  # Add time dimension
+                n_time_steps,
+                axis=0
+            )
+
+            # Apply mask: ocean→NaN, land→preserve
+            masked_values = np.where(
+                land_mask_3d == 1,  # Land pixels
+                data_array.values,  # Keep original value
+                np.nan              # Ocean pixels → NaN
+            )
+
+            logger.debug(f"    Masked {var_name}: 3D array ({n_time_steps} time steps)")
+
+        else:
+            # 2D variable (latitude, longitude)
+            masked_values = np.where(
+                land_mask_2d == 1,  # Land pixels
+                data_array.values,  # Keep original value
+                np.nan              # Ocean pixels → NaN
+            )
+
+            logger.debug(f"    Masked {var_name}: 2D array")
+
+        # Update dataset with masked values
+        masked_dataset[var_name] = xr.DataArray(
+            data=masked_values,
+            coords=data_array.coords,
+            dims=data_array.dims,
+            attrs=data_array.attrs,  # Preserve metadata
+        )
+
+    logger.info(f"✓ Land-sea masking applied to {len(variables_to_mask)} variables")
+
+    return masked_dataset
 
 
 def load_met_data_from_stac(
     stac_source: str,
     start_date: str,
     end_date: str,
+    landmask_file_path: str = None,
+    land_fraction_threshold: float = 0.5,
 ) -> xr.Dataset:
     """
     Load meteorological data from STAC catalog and assemble into unified dataset.
@@ -965,6 +1166,11 @@ def load_met_data_from_stac(
                 - Remote: 'https://stac-api.example.com'
         start_date (str): Start date in 'YYYY-MM' format (e.g., '2020-01')
         end_date (str): End date in 'YYYY-MM' format (e.g., '2020-12')
+        landmask_file_path (str, optional): Path to land fraction NetCDF file for masking.
+            If provided, ocean pixels are set to NaN in the output dataset.
+            Default: None (no masking)
+        land_fraction_threshold (float, optional): Land classification threshold.
+            Default: 0.5 (CARDAMOM standard)
 
     Returns:
         xr.Dataset: Unified meteorology dataset with structure:
@@ -1047,7 +1253,11 @@ def load_met_data_from_stac(
     )
 
     # Step 5: Assemble into unified dataset
-    unified_met_data = assemble_unified_meteorology_dataset(met_data)
+    unified_met_data = assemble_unified_meteorology_dataset(
+        met_data,
+        landmask_file_path=landmask_file_path,
+        land_fraction_threshold=land_fraction_threshold,
+    )
 
     logger.info("Meteorology loading complete")
 

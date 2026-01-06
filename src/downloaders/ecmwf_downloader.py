@@ -745,8 +745,9 @@ class ECMWFDownloader(BaseDownloader):
         time_dim_temp = self._get_time_dimension(ds_temp)
         time_dim_dew = self._get_time_dimension(ds_dew)
 
-        # Get monthly maximum temperature (already in Celsius from processing pipeline)
-        temperature_max_celsius = ds_temp[temp_var].max(dim=time_dim_temp, skipna=True).values
+        # Get monthly maximum temperature (convert from Kelvin to Celsius)
+        temperature_max_kelvin = ds_temp[temp_var].max(dim=time_dim_temp, skipna=True).values
+        temperature_max_celsius = temperature_max_kelvin - 273.15
 
         # Get monthly maximum dewpoint temperature (for consistency with MATLAB formula)
         dewpoint_celsius = ds_dew[dew_var].max(dim=time_dim_dew, skipna=True).values - 273.15
