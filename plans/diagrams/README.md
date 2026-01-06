@@ -4,26 +4,83 @@ This directory contains comprehensive data flow diagrams for the CARDAMOM STAC-b
 
 ## Overview
 
-These diagrams trace the complete data flow from CLI entry points through third-party API calls, data transformations, and final output generation. Each diagram documents:
+These diagrams serve three purposes:
 
-- CLI command parameters
+1. **System Architecture**: Document overall system design and component interactions
+2. **Data Flow**: Trace complete data flow from CLI entry points through third-party API calls, transformations, and outputs
+3. **Variable Documentation**: Detail specific transformations for each meteorological and fire emissions variable
+
+The diagrams document:
+- CLI command parameters and options
 - Third-party API calls with specific parameters (CDS API, NOAA GML, ORNL DAAC)
 - Data transformations and unit conversions
+- STAC metadata generation and catalog organization
+- Variable registry and type classification
+- Time coordinate alignment and data assembly
 - Output data format, dimensions, and variable names
 
 ## Diagram Files
+
+### Architecture Diagrams (6 diagrams)
+
+System-level diagrams documenting design, organization, and data flow:
+
+1. **[system_architecture_overview.drawio](./system_architecture_overview.drawio)**
+   - Complete system architecture with 5 layers
+   - Data acquisition layer (ECMWF, NOAA, GFED)
+   - STAC discovery layer (metadata-based queries)
+   - Data loading layer (meteorology and observations)
+   - Data assembly layer (regridding, alignment)
+   - CBF generation layer (pixel processing)
+
+2. **[variable_registry_system.drawio](./variable_registry_system.drawio)**
+   - Central `CARDAMOM_VARIABLE_REGISTRY` as single source of truth
+   - Variable type classification (meteorological, fire_emissions, observational)
+   - Metadata fields per variable (source, units, interpolation, range)
+   - Helper functions for variable lookup and filtering
+   - Registry consumers (downloaders, STAC utils, CBF generator, met loader)
+
+3. **[stac_catalog_structure.drawio](./stac_catalog_structure.drawio)**
+   - STAC directory structure with type-based collections
+   - `cardamom-meteorological-variables/`, `cardamom-fire-emissions-variables/`, etc.
+   - STAC item properties (cardamom:variable, variable_type, time_steps)
+   - Discovery process (recursive query, metadata filtering, data loading)
+   - Incremental collection updates with merge policies
+
+4. **[meteorology_discovery_flow.drawio](./meteorology_discovery_flow.drawio)**
+   - 4-phase meteorology loading workflow
+   - Discovery phase: Pure metadata filtering from STAC
+   - Loading phase: Handle 3 temporal structures (monthly, yearly, full time-series)
+   - Validation phase: FAIL if any variable/month missing (critical for science)
+   - Assembly phase: Regrid, normalize coordinates, apply land-sea mask
+
+5. **[time_coordinate_alignment.drawio](./time_coordinate_alignment.drawio)**
+   - Architectural shift in time authority
+   - OLD: Scaffold template as time source
+   - NEW: Meteorology dataset as time authority
+   - Observation alignment to meteorology time coordinate
+   - Graceful degradation with NaN-fill for missing observations
+
+6. **[observational_data_handling.drawio](./observational_data_handling.drawio)**
+   - Graceful degradation strategy for optional observational data
+   - Input files (all optional): main obs, SOM, FIR
+   - Loading strategy: NaN-fill for missing files/variables
+   - Pixel-level extraction with NaN fallback
+   - Degradation scenarios (all missing, partial, complete, temporal mismatch)
 
 ### ECMWF ERA5 Variables (8 diagrams)
 
 ERA5 meteorological reanalysis data from ECMWF Climate Data Store:
 
-1. **[ecmwf_t2m_min_flow.drawio](./ecmwf_t2m_min_flow.drawio)**
+7. **[ecmwf_t2m_min_flow.drawio](./ecmwf_t2m_min_flow.drawio)**
    - Monthly minimum 2-meter temperature
+   - Variable registry lookup from CARDAMOM_VARIABLE_REGISTRY
    - CDS API product: `monthly_averaged_reanalysis_by_hour_of_day`
    - Transformation: Extract min over 24 hourly values
+   - STAC metadata generation: Includes cardamom:variable, variable_type, time_steps
    - Output: T2M_MIN [K], dimensions [time=1, lat=360, lon=720]
 
-2. **[ecmwf_t2m_max_flow.drawio](./ecmwf_t2m_max_flow.drawio)**
+8. **[ecmwf_t2m_max_flow.drawio](./ecmwf_t2m_max_flow.drawio)**
    - Monthly maximum 2-meter temperature
    - CDS API product: `monthly_averaged_reanalysis_by_hour_of_day`
    - Transformation: Extract max over 24 hourly values
@@ -89,20 +146,46 @@ Burned area from Global Fire Emissions Database:
       - Regrid from 0.25° native to 0.5° CARDAMOM (2×2 averaging)
     - Output: BURNED_AREA [fraction], dimensions [time=1, lat=360, lon=720]
 
+### NOAA Data (1 diagram)
+
+Global atmospheric CO2 concentration from NOAA Global Monitoring Laboratory:
+
+15. **[noaa_co2_flow.drawio](./noaa_co2_flow.drawio)**
+    - Atmospheric CO2 concentration
+    - API: HTTPS download from `https://gml.noaa.gov/webdata/ccgg/trends/co2/co2_mm_gl.csv`
+    - Transformation: Parse CSV, create spatially-replicated grid (CO2 is uniform globally)
+    - Output options:
+      - Single month: CO2 [ppm], dimensions [time=1, lat=360, lon=720]
+      - Full dataset: CO2 [ppm], dimensions [time=N, lat=360, lon=720] (N ≈ 546 months from 1979-2024)
+
+### GFED Data (1 diagram)
+
+Burned area from Global Fire Emissions Database:
+
+16. **[gfed_burned_area_flow.drawio](./gfed_burned_area_flow.drawio)**
+    - Monthly burned area fraction
+    - API: HTTPS download from ORNL DAAC (`GFED4.1s_{year}.hdf5`)
+    - Transformation:
+      - Extract monthly data from HDF5 structure
+      - Regrid from 0.25° native to 0.5° CARDAMOM (2×2 averaging)
+    - Output: BURNED_AREA [fraction], dimensions [time=1, lat=360, lon=720]
+
 ### CBF Generator (1 diagram)
 
 CARDAMOM Binary Format file generation from STAC data:
 
-11. **[cbf_generator_flow.drawio](./cbf_generator_flow.drawio)**
+17. **[cbf_generator_flow.drawio](./cbf_generator_flow.drawio)** ⭐ **UPDATED**
     - Complete workflow from STAC data discovery to pixel-specific CBF files
-    - STAC API queries for 10 required variables
-    - Data validation (critical vs optional variables)
-    - Meteorological data loading and assembly
-    - Region definition (CONUS, global)
-    - Pixel-level CBF file generation
+    - Two parallel data paths:
+      - **Meteorology Path** (REQUIRED): STAC discovery → Load → Validate (FAIL if incomplete) → Assemble
+      - **Observation Path** (OPTIONAL): Load user files → NaN-fill → Align to meteorology time
+    - Time coordinate authority: Meteorology (not scaffold)
+    - Graceful degradation: Meteorology FAILS, observations NaN-fill
+    - Land pixel identification and pixel-specific CBF generation
     - Output: One CBF file per pixel (e.g., ~12,800 files for CONUS)
-      - Dimensions per file: [time=N, lat=scalar, lon=scalar]
-      - Variables: All 10 meteorological forcing variables
+      - Dimensions per file: [time=12, lat=scalar, lon=scalar]
+      - Forcing variables: All 10 meteorological variables (from STAC meteorology)
+      - Constraints: Observational data with NaN-fill for missing
       - Format: CARDAMOM-compatible NetCDF with CF-1.8 conventions
 
 ## Common Output Specifications
@@ -141,20 +224,70 @@ These are [draw.io](https://app.diagrams.net/) (diagrams.net) files. Open them w
 - **Gray**: Cleanup operations
 - **Light Blue**: STAC operations (when included)
 
+## Recent Changes (December 2025)
+
+### New Architecture Diagrams (6 files)
+- **system_architecture_overview.drawio**: Complete 5-layer system architecture
+- **variable_registry_system.drawio**: Central metadata registry documentation
+- **stac_catalog_structure.drawio**: STAC collection organization and discovery
+- **meteorology_discovery_flow.drawio**: 4-phase meteorology loading workflow
+- **time_coordinate_alignment.drawio**: Time authority shift (scaffold → meteorology)
+- **observational_data_handling.drawio**: Graceful degradation for optional data
+
+### CBF Generator Diagram Updates
+- Separated meteorology (required) and observation (optional) paths
+- Added STAC discovery layer with validation checkpoints
+- Documented time coordinate alignment
+- Highlighted graceful degradation strategy
+- Comprehensive pixel processing with constraint setting
+
+### Variable Diagram Updates
+- Added variable registry lookup step
+- Added STAC metadata generation step (creates items with cardamom: properties)
+- Batch processing capability noted for ECMWF diagrams
+- Updated radiation units: W/m² → MJ/m²/day (for SSRD, STRD)
+
+### Key Architectural Changes Documented
+1. **Variable Type Classification** (Commit f5b9093)
+   - Variables now classified as METEOROLOGICAL, OBSERVATIONAL, FIRE_EMISSIONS
+   - Single source of truth in `CARDAMOM_VARIABLE_REGISTRY`
+   - Type-based STAC collection organization
+
+2. **STAC Integration** (Commits 7ad7d0a, 314486c, eeb9d08)
+   - Pure metadata-based discovery (no catalog structure assumptions)
+   - Handles 3 temporal file structures (monthly, yearly, full time-series)
+   - Automatic regridding for resolution mismatches
+   - Incremental catalog updates with merge policies
+
+3. **Time Coordinate Authority Shift** (Commit b27635d)
+   - OLD: Scaffold template defines time
+   - NEW: Meteorology dataset defines time (CBF authority)
+   - Observations align to meteorology time with NaN-fill
+
+4. **Graceful Degradation Strategy**
+   - Meteorology: FAIL if incomplete (scientific validity required)
+   - Observations: NaN-fill if missing (optional for forward-only mode)
+
 ## Notes
 
-- STAC metadata operations are excluded from these diagrams per specification
-- Diagrams focus on data flow and transformations
-- Variable names and dimensions are explicitly documented
+- STAC metadata operations are now explicitly included in diagrams
+- Diagrams document variable registry lookups and type classification
+- All STAC properties and metadata fields are detailed
+- Graceful degradation strategy clearly explained
+- Time coordinate authority changes highlighted
+- Variable names, units, and dimensions explicitly documented
 - All third-party API parameters are detailed
 
 ## Related Documentation
 
-- [STAC Implementation Summary](../../STAC_IMPLEMENTATION_SUMMARY.md)
-- [Migration Notes](../../MIGRATION_NOTES.md)
-- [Original MATLAB code](../../matlab-migration/)
+- [CLAUDE.md](../../CLAUDE.md): Project coding standards and architecture
+- [STAC Implementation](../../src/stac_utils.py): STAC catalog management
+- [Variable Registry](../../src/cardamom_variables.py): Central metadata
+- [CBF Generation](../../src/cbf_main.py): Pixel-specific file generation
+- [Migration Notes](../../matlab-migration/): MATLAB to Python migration
 
 ---
 
-*Generated: 2025-12-17*
+*Last Updated: 2025-12-17*
+*Total Diagrams: 17 (6 architecture + 8 ECMWF + 1 NOAA + 1 GFED + 1 CBF)*
 *CARDAMOM Preprocessor v1.0*

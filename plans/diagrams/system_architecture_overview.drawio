@@ -1,0 +1,176 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.0.3 Chrome/140.0.7339.249 Electron/38.7.0 Safari/537.36" version="29.0.3">
+  <diagram name="System Architecture Overview" id="system-arch">
+    <mxGraphModel dx="1434" dy="1644" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1800" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="CARDAMOM Preprocessor: System Architecture Overview" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="300" width="700" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- LAYER 1: Data Acquisition -->
+        <mxCell id="layer1-title" value="Layer 1: Data Acquisition" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="40" y="60" width="300" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ecmwf-downloader" value="ECMWFDownloader&#xa;(ERA5 Meteorology)&#xa;&#xa;Variables:&#xa;  T2M_MIN, T2M_MAX&#xa;  VPD, TOTAL_PREC&#xa;  SSRD, STRD, SKT&#xa;  SNOWFALL&#xa;&#xa;Outputs:&#xa;  NetCDF files + STAC items" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left" parent="1" vertex="1">
+          <mxGeometry x="40" y="110" width="280" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="noaa-downloader" value="NOAADownloader&#xa;(CO₂ Concentrations)&#xa;&#xa;Variables:&#xa;  CO2 (1979-present)&#xa;&#xa;Outputs:&#xa;  NetCDF file + STAC item" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left" parent="1" vertex="1">
+          <mxGeometry x="360" y="110" width="280" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="gfed-downloader" value="GFEDDownloader&#xa;(Fire Emissions)&#xa;&#xa;Variables:&#xa;  BURNED_AREA&#xa;  FIRE_C&#xa;&#xa;Outputs:&#xa;  NetCDF files + STAC items" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left" parent="1" vertex="1">
+          <mxGeometry x="680" y="110" width="280" height="180" as="geometry" />
+        </mxCell>
+
+        <!-- LAYER 2: STAC Discovery Layer -->
+        <mxCell id="layer2-title" value="Layer 2: STAC Discovery Layer" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="40" y="320" width="300" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="stac-catalog" value="STAC Catalog (Root)&#xa;catalog.json&#xa;&#xa;Contains:&#xa;  Collections indexed by variable type&#xa;  Items with metadata properties&#xa;  Asset URLs pointing to NetCDF files&#xa;&#xa;Organization:&#xa;  cardamom-meteorological-variables/&#xa;  cardamom-fire-emissions-variables/" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#add1fe;strokeColor=#1d6ec7;align=left" parent="1" vertex="1">
+          <mxGeometry x="40" y="370" width="420" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge-acq-stac1" parent="1" source="ecmwf-downloader" target="stac-catalog" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="180" y="290" as="sourcePoint" />
+            <mxPoint x="250" y="370" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="edge-acq-stac2" parent="1" source="noaa-downloader" target="stac-catalog" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="500" y="290" as="sourcePoint" />
+            <mxPoint x="250" y="370" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="edge-acq-stac3" parent="1" source="gfed-downloader" target="stac-catalog" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="820" y="290" as="sourcePoint" />
+            <mxPoint x="250" y="370" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- STAC Discovery Details -->
+        <mxCell id="stac-discovery" value="STAC Discovery Engine&#xa;stac_met_loader.discover_stac_items()&#xa;&#xa;Operations:&#xa;  1. Query catalog by variable name&#xa;  2. Filter by temporal range&#xy;  3. Filter by metadata properties&#xa;  4. Return matching STAC items&#xa;&#xa;Returns: List of STAC items for each variable" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#add1fe;strokeColor=#1d6ec7;align=left" parent="1" vertex="1">
+          <mxGeometry x="500" y="370" width="380" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge-stac-discovery" parent="1" source="stac-catalog" target="stac-discovery" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- LAYER 3: Data Loading Layer -->
+        <mxCell id="layer3-title" value="Layer 3: Data Loading Layer" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="40" y="580" width="300" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="met-loader" value="Meteorology Loader&#xa;stac_met_loader.load_variable_from_stac_items()&#xa;&#xa;Operations:&#xa;  1. Load NetCDF from STAC asset URLs&#xa;  2. Handle 3 temporal structures:&#xa;     - Single month (1 time step)&#xy;     - Yearly (12 time steps)&#xy;     - Full time-series&#xa;  3. Extract time from CF coordinate&#xa;  4. Concatenate along time dimension&#xa;&#xa;Output: Unified meteorology dataset" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left" parent="1" vertex="1">
+          <mxGeometry x="40" y="630" width="380" height="220" as="geometry" />
+        </mxCell>
+
+        <mxCell id="met-validation" value="Meteorology Validation&#xa;stac_met_loader.validate_meteorology_completeness()&#xy;CRITICAL: FAIL if:&#xa;  - Any required variable missing&#xy;  - Any required month missing&#xa;&#xa;Scientific Rationale:&#xy;  Meteorology MUST be complete&#xy;  for valid carbon cycle modeling" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left" parent="1" vertex="1">
+          <mxGeometry x="460" y="630" width="340" height="150" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge-discovery-met" parent="1" source="stac-discovery" target="met-loader" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="500" y="550" as="sourcePoint" />
+            <mxPoint x="230" y="630" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="edge-met-val" parent="1" source="met-loader" target="met-validation" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="obs-loader" value="Observational Data Loader&#xa;cbf_obs_handler.load_observational_data_with_nan_fill()&#xy;Optional Files:&#xa;  - Main obs (LAI, GPP, ABGB, EWT)&#xa;  - SOM (soil properties)&#xa;  - FIR (fire emissions)&#xa;&#xa;Strategy: NaN-fill for missing data&#xa;Graceful degradation - observations optional" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left" parent="1" vertex="1">
+          <mxGeometry x="850" y="630" width="380" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge-obs-loader" parent="1" source="stac-discovery" target="obs-loader" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="880" y="550" as="sourcePoint" />
+            <mxPoint x="1040" y="630" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- LAYER 4: Data Assembly -->
+        <mxCell id="layer4-title" value="Layer 4: Data Assembly" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="40" y="880" width="300" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="met-assembly" value="Meteorology Assembly&#xa;stac_met_loader.assemble_unified_meteorology_dataset()&#xy;Operations:&#xy;  1. Detect resolution mismatches&#xy;  2. Regrid to coarsest resolution&#xa;  3. Normalize coordinates&#xy;  4. Apply land-sea mask (optional)&#xa;&#xy;Output: Unified dataset [time, lat, lon]&#xa;Authority: Meteorology time coordinate" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left" parent="1" vertex="1">
+          <mxGeometry x="40" y="930" width="380" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="obs-alignment" value="Observational Alignment&#xa;cbf_obs_handler.align_observations_to_meteorology_time()&#xy;Operations:&#xy;  1. Get time from meteorology dataset&#xy;  2. Align obs to met time coordinate&#xy;  3. NaN-fill missing time steps&#xy;  4. Allow temporal mismatches&#xy;&#xy;Both datasets share meteorology time" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left" parent="1" vertex="1">
+          <mxGeometry x="460" y="930" width="370" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge-val-assembly" parent="1" source="met-validation" target="met-assembly" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="460" y="780" as="sourcePoint" />
+            <mxPoint x="230" y="930" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="edge-obs-align" parent="1" source="obs-loader" target="obs-alignment" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1040" y="810" as="sourcePoint" />
+            <mxPoint x="645" y="930" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- LAYER 5: CBF Generation -->
+        <mxCell id="layer5-title" value="Layer 5: CBF Generation" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="40" y="1140" width="300" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cbf-generator" value="CBF File Generator&#xa;cbf_main.generate_cbf_files()&#xy;For each land pixel:&#xy;  1. Find land pixels (land_frac &gt; 0.5)&#xy;  2. Extract meteorology for pixel&#xa;  3. Extract observations for pixel (with NaN fallback)&#xa;  4. Set forcing, constraints, MCMC parameters&#xy;  5. Generate filename, save CBF NetCDF file&#xy;&#xa;Output: One CBF file per pixel" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left" parent="1" vertex="1">
+          <mxGeometry x="40" y="1190" width="750" height="200" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge-assembly-cbf" parent="1" source="met-assembly" target="cbf-generator" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="230" y="1110" as="sourcePoint" />
+            <mxPoint x="280" y="1190" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="edge-obs-cbf" parent="1" source="obs-alignment" target="cbf-generator" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="645" y="1110" as="sourcePoint" />
+            <mxPoint x="420" y="1190" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Final Output -->
+        <mxCell id="output" value="CBF Files Output&#xa;Directory: ./cbf_output/&#xy;&#xa;Files: site*.cbf.nc (one per pixel)&#xy;Total: ~12,800 files for CONUS&#xy;&#xa;Ready for CARDAMOM carbon cycle modeling" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;align=left" parent="1" vertex="1">
+          <mxGeometry x="40" y="1440" width="750" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge-cbf-output" parent="1" source="cbf-generator" target="output" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Data Flow Notes -->
+        <mxCell id="data-flow-note" value="Data Flow Architecture&#xy;1. Downloaders create NetCDF files with STAC metadata&#xy;2. STAC catalog enables metadata-based discovery&#xy;3. Meteorology loader discovers and validates data (FAIL if incomplete)&#xy;4. Observation loader gracefully degrades (NaN-fill if missing)&#xa;5. Both share meteorology time coordinate (authority)&#xa;6. CBF generator processes each pixel with unified data" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;fontStyle=2" parent="1" vertex="1">
+          <mxGeometry x="850" y="930" width="380" height="210" as="geometry" />
+        </mxCell>
+
+        <!-- Validation Strategy -->
+        <mxCell id="validation-note" value="Validation Strategy&#xy;METEOROLOGY (Required):&#xy;  • FAIL if variable missing&#xa;  • FAIL if month missing&#xa;  • Essential for carbon modeling&#xy;&#xy;OBSERVATIONS (Optional):&#xy;  • NaN-fill if missing&#xy;  • Forward-only mode allowed&#xa;  • Data assimilation benefits from obs&#xa;  but can proceed without them" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left;fontStyle=2" parent="1" vertex="1">
+          <mxGeometry x="850" y="1190" width="380" height="200" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

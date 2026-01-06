@@ -1,0 +1,78 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.0.3 Chrome/140.0.7339.249 Electron/38.7.0 Safari/537.36" version="29.0.3">
+  <diagram name="Time Coordinate Alignment" id="time-align">
+    <mxGraphModel dx="1434" dy="1244" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1300" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="Time Coordinate Alignment in CBF Generation" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="300" width="700" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Old Architecture -->
+        <mxCell id="old-title" value="OLD: Scaffold as Time Authority" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1;color=#cc0000" parent="1" vertex="1">
+          <mxGeometry x="40" y="60" width="300" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="old-time" value="Time Authority: Scaffold Template&#xa;(Static File)&#xy;&#xa;Time Coordinate from Scaffold:&#xy;  12 months of 2001&#xy;  [2001-01-01, 2001-02-01, ..., 2001-12-01]&#xy;&#xa;Meteorology:&#xy;  Loaded from static file&#xy;  Must have 12 time steps&#xy;  Must match scaffold months&#xy;&#xa;Observations:&#xy;  Loaded from static file&#xy;  Must match scaffold time exactly" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left" parent="1" vertex="1">
+          <mxGeometry x="40" y="110" width="380" height="220" as="geometry" />
+        </mxCell>
+
+        <mxCell id="old-issues" value="Issues with OLD Approach&#xy;&#xa;✗ Tightly coupled to scaffold time&#xy;✗ Cannot easily process different years&#xy;✗ Inflexible for different data scenarios&#xy;✗ Hard to update for new time periods&#xy;✗ Mismatch between data and scaffold causes errors" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left" parent="1" vertex="1">
+          <mxGeometry x="480" y="110" width="360" height="140" as="geometry" />
+        </mxCell>
+
+        <!-- New Architecture -->
+        <mxCell id="new-title" value="NEW: Meteorology as Time Authority" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1;color=#00cc00" parent="1" vertex="1">
+          <mxGeometry x="40" y="370" width="350" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="met-load" value="Step 1: Load Meteorology from STAC&#xa;stac_met_loader.load_variable_from_stac_items()&#xy;&#xa;Source: STAC catalog (variable time-series)&#xy;Output: xr.Dataset with time coordinate&#xy;&#xa;Example:&#xy;  Time steps: 12 months of 2020&#xy;  Time coord: [2020-01-01, 2020-02-01, ..., 2020-12-01]&#xy;  Dimensions: [time=12, lat=360, lon=720]" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#add1fe;strokeColor=#1d6ec7;align=left" parent="1" vertex="1">
+          <mxGeometry x="40" y="420" width="400" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="met-time" value="Meteorology Time Authority&#xy;&#xa;Time Coordinate Definition:&#xy;  Source: STAC item metadata&#xy;  Extracted from: NetCDF CF time encoding&#xy;&#xa;This becomes the TIME AUTHORITY:&#xy;  All other datasets align to this time&#xy;  CBF files use this time coordinate&#xy;  Immutable for given meteorology source" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#add1fe;strokeColor=#1d6ec7;align=left" parent="1" vertex="1">
+          <mxGeometry x="520" y="420" width="360" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge-met" parent="1" source="met-load" target="met-time" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </Cell>
+
+        <mxCell id="obs-load" value="Step 2: Load Observations (Optional)&#xa;cbf_obs_handler.load_observational_data_with_nan_fill()&#xy;&#xa;Source: User-provided files (optional)&#xy;Output: xr.Dataset with (possibly) different time&#xy;&#xa;Scenarios:&#xy;  • Obs covers same period as met: Align directly&#xy;  • Obs covers partial period: NaN-fill missing months&#xy;  • Obs missing entirely: All NaN" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#add1fe;strokeColor=#1d6ec7;align=left" parent="1" vertex="1">
+          <mxGeometry x="40" y="650" width="400" height="160" as="geometry" />
+        </Cell>
+
+        <mxCell id="obs-align" value="Step 3: Align Obs to Meteorology Time&#xa;cbf_obs_handler.align_observations_to_meteorology_time()&#xy;&#xa;Algorithm:&#xy;  1. Get time coordinate from meteorology&#xy;  2. For each meteorology time step:&#xy;     • Find matching obs time step (if exists)&#xy;     • Copy obs value&#xy;     • If no match: NaN&#xy;  3. Result: Obs aligned to met time&#xy;&#xa;Graceful Degradation:&#xy;  Missing months → NaN (allowed)&#xy;  Missing variables → NaN (allowed)&#xy;  Missing pixels → NaN (allowed)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left" parent="1" vertex="1">
+          <mxGeometry x="520" y="650" width="400" height="200" as="geometry" />
+        </Cell>
+
+        <mxCell id="edge-obs" parent="1" source="obs-load" target="obs-align" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </Cell>
+
+        <mxCell id="scaffold-role" value="Step 4: Scaffold Role Changed&#xa;&#xa;OLD: Scaffold provides time coordinate&#xy;NEW: Scaffold is template only&#xy;&#xa;What Scaffold Provides Now:&#xy;  • Variable metadata (attributes)&#xy;  • Encoding specifications&#xy;  • MCMC parameter defaults&#xy;&#xa;What Scaffold NO LONGER Provides:&#xy;  ✗ Time coordinate (from meteorology)&#xy;  ✗ Forcing data (from meteorology)&#xy;  ✗ Observation data (from user obs)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left" parent="1" vertex="1">
+          <mxGeometry x="40" y="870" width="400" height="200" as="geometry" />
+        </Cell>
+
+        <mxCell id="cbf-generation" value="Step 5: Pixel-Specific CBF Generation&#xa;&#xa;For each pixel (lat, lon):&#xy;  1. Extract meteorology for pixel&#xy;     Result: Time series with met time coord&#xy;  2. Extract observations for pixel&#xy;     Result: Time series with met time coord (NaN where missing)&#xy;  3. Create CBF file:&#xy;     Time dimension: From meteorology&#xy;     Forcing variables: From meteorology&#xy;     Constraints: From observations (with NaN)&#xy;     Metadata: From scaffold" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left" parent="1" vertex="1">
+          <mxGeometry x="520" y="870" width="400" height="200" as="geometry" />
+        </Cell>
+
+        <mxCell id="edge-cbf" parent="1" source="scaffold-role" target="cbf-generation" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="440" y="970" as="sourcePoint" />
+            <mxPoint x="520" y="970" as="targetPoint" />
+          </mxGeometry>
+        </Cell>
+
+        <!-- Summary -->
+        <mxCell id="summary" value="Key Changes: Time Coordinate Authority&#xy;&#xy;OLD: Scaffold Time → Meteorology Time → Observations Time&#xy;NEW: Meteorology Time (AUTHORITY) ← Observations align to this&#xy;&#xy;Benefits of NEW Approach:&#xy;✓ Flexible: Different time periods without changing code&#xy;✓ Robust: Observations can have gaps (NaN-filled)&#xy;✓ Scientific: Meteorology completeness validated upfront&#xy;✓ Modular: Each component (met, obs) independently loaded" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;fontStyle=2" parent="1" vertex="1">
+          <mxGeometry x="40" y="1120" width="880" height="140" as="geometry" />
+        </Cell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

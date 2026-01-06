@@ -10,9 +10,18 @@
           <mxGeometry x="40" y="40" width="280" height="80" as="geometry"/>
         </mxCell>
 
+        <!-- Variable Registry Lookup -->
+        <mxCell id="var-registry" value="Variable Registry Lookup&#xa;CARDAMOM_VARIABLE_REGISTRY&#xa;&#xa;Query: '2m_temperature'&#xa;Type: METEOROLOGICAL&#xa;CBF Name: T2M_MIN&#xa;Units: K (source), K (target)&#xa;Interpolation: linear" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656" vertex="1" parent="1">
+          <mxGeometry x="40" y="160" width="280" height="120" as="geometry"/>
+        </mxCell>
+
         <!-- Variable Resolution -->
-        <mxCell id="var-resolve" value="Variable Dependency Resolution&#xa;&#xa;Output var: t2m_min&#xa;→ Raw ERA5 var: 2m_temperature" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656" vertex="1" parent="1">
-          <mxGeometry x="40" y="160" width="280" height="80" as="geometry"/>
+        <mxCell id="var-resolve" value="Variable Dependency Resolution&#xa;&#xa;Output var: t2m_min (CBF name)&#xa;→ Raw ERA5 var: 2m_temperature" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656" vertex="1" parent="1">
+          <mxGeometry x="350" y="160" width="280" height="100" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge-registry" edge="1" parent="1" source="cli-entry" target="var-registry">
+          <mxGeometry relative="1" as="geometry"/>
         </mxCell>
 
         <mxCell id="edge1" edge="1" parent="1" source="cli-entry" target="var-resolve">
@@ -64,6 +73,15 @@
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
 
+        <!-- STAC Metadata Generation -->
+        <mxCell id="stac-metadata" value="Create STAC Metadata Item&#xa;stac_utils.create_stac_item()&#xa;&#xa;STAC Item Properties:&#xa;  cardamom:variable: 't2m_min'&#xa;  cardamom:variable_type: 'meteorological'&#xa;  cardamom:time_steps: 1&#xa;  datetime: 2020-01-01&#xa;&#xa;Asset Link:&#xa;  href: output/data/t2m_min_2020_01.nc&#xy;&#xa;Update STAC catalog with incremental merge" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f0f0f0;strokeColor=#1d6ec7;align=left" vertex="1" parent="1">
+          <mxGeometry x="780" y="680" width="360" height="220" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge-stac" edge="1" parent="1" source="output" target="stac-metadata">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
         <!-- Raw File Cleanup -->
         <mxCell id="cleanup" value="Cleanup (if --keep-raw not set)&#xa;Delete: raw/2m_temperature_2020_01.nc" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333" vertex="1" parent="1">
           <mxGeometry x="400" y="880" width="280" height="60" as="geometry"/>
@@ -71,6 +89,13 @@
 
         <mxCell id="edge7" edge="1" parent="1" source="output" target="cleanup">
           <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge-stac-cleanup" edge="1" parent="1" source="stac-metadata" target="cleanup">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="780" y="910" as="sourcePoint"/>
+            <mxPoint x="680" y="910" as="targetPoint"/>
+          </mxGeometry>
         </mxCell>
 
         <!-- Title -->

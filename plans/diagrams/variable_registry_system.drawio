@@ -1,0 +1,84 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.0.3 Chrome/140.0.7339.249 Electron/38.7.0 Safari/537.36" version="29.0.3">
+  <diagram name="Variable Registry System" id="var-registry">
+    <mxGraphModel dx="1434" dy="1044" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="Variable Registry System: Single Source of Truth" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="300" width="700" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Central Registry Hub -->
+        <mxCell id="registry-hub" value="CARDAMOM_VARIABLE_REGISTRY&#xa;(Central Hub)&#xa;&#xa;cardamom_variables.py&#xy;&#xa;Centralized metadata for ALL variables&#xa;Single source of truth for:&#xa;  Variable names&#xa;  Units (source and target)&#xa;  Variable types and classifications&#xa;  CBF mappings&#xa;  Processing hints" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;align=left" parent="1" vertex="1">
+          <mxGeometry x="500" y="100" width="380" height="200" as="geometry" />
+        </mxCell>
+
+        <!-- Variable Type Classification -->
+        <mxCell id="var-types" value="Variable Type Classification&#xy;&#xa;METEOROLOGICAL:&#xa;  T2M_MIN, T2M_MAX, VPD&#xa;  TOTAL_PREC, SSRD, STRD&#xy;  SKT, SNOWFALL, CO2&#xy;&#xa;FIRE_EMISSIONS:&#xy;  BURNED_AREA, FIRE_C&#xy;&#xa;OBSERVATIONAL:&#xy;  LAI, GPP, ABGB, EWT&#xa;  SOM, Mean_FIR" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left" parent="1" vertex="1">
+          <mxGeometry x="50" y="100" width="380" height="220" as="geometry" />
+        </mxCell>
+
+        <!-- Sample Variable Entry -->
+        <mxCell id="var-entry" value="Sample Registry Entry:&#xy;&#xa;'2m_temperature': {&#xa;  'source': 'era5'&#xa;  'alternative_names': ['t2m', 'T2M']&#xa;  'cbf_names': ['TMIN', 'TMAX']&#xa;  'units': {&#xa;    'source': 'K',&#xy;    'cbf': 'K'&#xa;  }&#xa;  'interpolation': 'linear'&#xa;  'spatial_nature': 'continuous'&#xa;  'physical_range': (173, 333)&#xa;  'essential': True&#xa;}" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left" parent="1" vertex="1">
+          <mxGeometry x="50" y="360" width="380" height="320" as="geometry" />
+        </mxCell>
+
+        <!-- Metadata Fields -->
+        <mxCell id="metadata-fields" value="Metadata Fields per Variable&#xy;&#xa;source: Data source (era5, noaa, gfed)&#xy;alternative_names: Flexible naming&#xy;cbf_names: Target CBF variable names&#xy;units: Source and target units&#xy;interpolation_method: linear/nearest&#xy;spatial_nature: continuous/patchy&#xy;physical_range: Valid value range&#xy;essential: Required or optional&#xy;variable_type: Classification&#xy;processing_notes: Scientific context" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left" parent="1" vertex="1">
+          <mxGeometry x="500" y="360" width="380" height="260" as="geometry" />
+        </mxCell>
+
+        <!-- Helper Functions -->
+        <mxCell id="helper-funcs" value="Helper Functions&#xy;&#xa;get_variable_config()&#xa;  Retrieve full metadata for variable&#xy;&#xa;get_interpolation_method()&#xy;  Determine interpolation for variable&#xy;&#xa;get_cbf_name()&#xy;  Map source → target name&#xy;&#xa;get_variables_by_source()&#xy;  Filter variables by data source&#xy;&#xa;get_variables_by_type()&#xy;  Filter variables by classification&#xy;&#xa;validate_variable()&#xy;  Check if variable exists" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left" parent="1" vertex="1">
+          <mxGeometry x="950" y="100" width="350" height="280" as="geometry" />
+        </mxCell>
+
+        <!-- Consumers of Registry -->
+        <mxCell id="consumers-title" value="Consumers of Registry" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="50" y="720" width="200" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="consumer-downloaders" value="Downloaders&#xy;&#xa;• Lookup CBF names&#xy;  for output variables&#xy;&#xa;• Get units for&#xy;  conversion&#xy;&#xa;• Validate inputs" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=center" parent="1" vertex="1">
+          <mxGeometry x="50" y="780" width="180" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge-registry-dl" parent="1" source="registry-hub" target="consumer-downloaders" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="540" y="300" as="sourcePoint" />
+            <mxPoint x="140" y="780" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="consumer-stac" value="STAC Utils&#xy;&#xa;• Get variable type&#xy;  for collections&#xy;&#xa;• Populate metadata&#xy;  properties&#xy;&#xa;• Filter by type" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=center" parent="1" vertex="1">
+          <mxGeometry x="280" y="780" width="180" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge-registry-stac" parent="1" source="registry-hub" target="consumer-stac" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="640" y="300" as="sourcePoint" />
+            <mxPoint x="370" y="780" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="consumer-cbf" value="CBF Generator&#xy;&#xa;• Retrieve variable&#xy;  metadata&#xy;&#xa;• Get CBF names&#xy;&#xa;• Validate forcing&#xy;  variables" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=center" parent="1" vertex="1">
+          <mxGeometry x="510" y="780" width="180" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge-registry-cbf" parent="1" source="registry-hub" target="consumer-cbf" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="690" y="300" as="sourcePoint" />
+            <mxPoint x="600" y="780" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="consumer-met" value="Met Loader&#xy;&#xa;• Query by variable&#xy;  name&#xy;&#xa;• Filter by type&#xy;&#xa;• Validate variables&#xy;  exist" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=center" parent="1" vertex="1">
+          <mxGeometry x="740" y="780" width="180" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge-registry-met" parent="1" source="registry-hub" target="consumer-met" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="740" y="300" as="sourcePoint" />
+            <mxPoint x="830" y="780" as="targetPoint" />
+          </mxGeometry>

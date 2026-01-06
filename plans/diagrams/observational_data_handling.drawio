@@ -1,0 +1,69 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.0.3 Chrome/140.0.7339.249 Electron/38.7.0 Safari/537.36" version="29.0.3">
+  <diagram name="Observational Data Handling" id="obs-handling">
+    <mxGraphModel dx="1434" dy="1044" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="Observational Data Handling with NaN-Fill Graceful Degradation" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="250" width="800" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Input Files -->
+        <mxCell id="input-title" value="Input Files (ALL Optional)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="40" y="60" width="250" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="obs-file" value="Main Observation File&#xa;(Optional)&#xy;&#xa;Contains:&#xy;  LAI (Leaf Area Index)&#xy;  GPP (Gross Primary Productivity)&#xy;  ABGB (Above-Ground Biomass)&#xy;  EWT (Equivalent Water Thickness)&#xy;&#xa;If missing: All variables → NaN" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#add1fe;strokeColor=#1d6ec7;align=left" parent="1" vertex="1">
+          <mxGeometry x="40" y="110" width="280" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="som-file" value="Soil Organic Matter File&#xa;(Optional)&#xy;&#xa;Contains:&#xy;  SOM (soil carbon)&#xy;  From HWSD database&#xy;&#xa;If missing: SOM → NaN" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#add1fe;strokeColor=#1d6ec7;align=left" parent="1" vertex="1">
+          <mxGeometry x="360" y="110" width="280" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="fir-file" value="Fire Emissions File&#xa;(Optional)&#xy;&#xa;Contains:&#xy;  Mean_FIR (fire emissions)&#xy;  From GFED4.1s&#xy;&#xa;If missing: Mean_FIR → NaN" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#add1fe;strokeColor=#1d6ec7;align=left" parent="1" vertex="1">
+          <mxGeometry x="680" y="110" width="280" height="160" as="geometry" />
+        </mxCell>
+
+        <!-- Loading Strategy -->
+        <mxCell id="loading-title" value="Loading Strategy: NaN-Fill for Missing Data" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="40" y="310" width="400" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="loading-logic" value="for each optional file:&#xy;    try:&#xy;        load_file(path)&#xy;    except FileNotFoundError:&#xy;        Fill with NaN array (graceful degradation)&#xy;&#xa;Result: Unified obs dataset&#xy;  with NaN for all missing files/variables" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;fontFamily=monospace" parent="1" vertex="1">
+          <mxGeometry x="40" y="360" width="620" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="loading-logic-sci" value="Scientific Rationale&#xa;&#xa;Observations are OPTIONAL:&#xy;  Forward-only simulations allowed&#xy;  Data assimilation optional&#xy;  Graceful degradation acceptable&#xy;&#xa;Contrasts with Meteorology:&#xy;  Meteorology is REQUIRED (FAIL if missing)&#xy;  Observations are OPTIONAL (NaN-fill if missing)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left" parent="1" vertex="1">
+          <mxGeometry x="720" y="360" width="380" height="140" as="geometry" />
+        </mxCell>
+
+        <!-- Variable Processing -->
+        <mxCell id="processing-title" value="Variable Processing & Naming" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="40" y="540" width="300" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="variable-processing" value="For each variable:&#xy;&#xa;1. Check if loaded successfully:&#xy;   ✓ Keep: Rename to CBF convention&#xy;   ✗ NaN: Fill array with NaN values&#xy;&#xa;2. CBF Variable Renaming:&#xy;   ModLAI → LAI&#xy;   GPPFluxSat → GPP&#xy;   (See CARDAMOM_VARIABLE_REGISTRY)&#xy;&#xa;3. Preserve Attributes:&#xy;   Copy from scaffold template&#xy;   Override with data attributes if present" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left" parent="1" vertex="1">
+          <mxGeometry x="40" y="590" width="620" height="200" as="geometry" />
+        </mxCell>
+
+        <!-- Pixel Extraction -->
+        <mxCell id="pixel-extraction" value="Pixel-Level Extraction with NaN Fallback&#xy;&#xa;For each pixel (lat_idx, lon_idx):&#xy;  for each obs variable:&#xy;      try:&#xy;          data = obs_dataset[var].isel(lat=lat_idx, lon=lon_idx)&#xy;      except (KeyError, IndexError):&#xy;          data = NaN  (pixel/variable missing)&#xy;&#xa;Result: Time series or NaN for each variable" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;fontFamily=monospace" parent="1" vertex="1">
+          <mxGeometry x="720" y="590" width="380" height="200" as="geometry" />
+        </mxCell>
+
+        <!-- Degradation Modes -->
+        <mxCell id="degradation-title" value="Graceful Degradation Scenarios" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="40" y="830" width="300" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="degradation-scenarios" value="Scenario 1: All obs missing&#xy;  → All NaN → Forward-only mode&#xy;&#xy;Scenario 2: Partial obs coverage&#xy;  → Mix of data and NaN&#xy;  → Data assimilation with incomplete constraints&#xy;&#xa;Scenario 3: Complete obs coverage&#xy;  → Full data assimilation capability&#xy;&#xy;Scenario 4: Temporal mismatch&#xy;  → NaN-fill unobserved time steps&#xy;  → Obs subset aligns to met time&#xy;&#xy;All scenarios scientifically valid&#xy;Carbon modeling proceeds with available data" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left" parent="1" vertex="1">
+          <mxGeometry x="40" y="880" width="1060" height="200" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

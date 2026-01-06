@@ -1,0 +1,119 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.0.3 Chrome/140.0.7339.249 Electron/38.7.0 Safari/537.36" version="29.0.3">
+  <diagram name="Meteorology Discovery Flow" id="met-discovery">
+    <mxGraphModel dx="1434" dy="1444" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1500" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="STAC-Based Meteorology Discovery and Loading Flow" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="300" width="700" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- PHASE 1: Discovery -->
+        <mxCell id="phase1-title" value="Phase 1: Discovery" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="40" y="60" width="200" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="discover-inputs" value="Inputs&#xy;&#xa;Required Variables:&#xy;  T2M_MIN, T2M_MAX, VPD&#xy;  TOTAL_PREC, SSRD, STRD&#xy;  SKT, SNOWFALL, CO2&#xa;  BURNED_AREA&#xy;&#xa;Temporal Range:&#xy;  Start: 2020-01&#xy;  End: 2020-12" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left" parent="1" vertex="1">
+          <mxGeometry x="40" y="110" width="280" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="discover-query" value="STAC Query&#xa;discover_stac_items()&#xy;&#xa;For each variable:&#xy;  1. Query catalog recursively&#xa;  2. Filter by cardamom:variable&#xy;  3. Filter by temporal range&#xy;  4. Collect matching items&#xy;&#xa;Pure metadata filtering - no assumptions&#xy;about catalog structure" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#add1fe;strokeColor=#1d6ec7;align=left" parent="1" vertex="1">
+          <mxGeometry x="380" y="110" width="340" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge-d1" parent="1" source="discover-inputs" target="discover-query" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="discover-output" value="Discovery Output&#xy;&#xa;Dict of STAC items per variable:&#xy;&#xa;{&#xy;  't2m_min': [item_2020_01, item_2020_02, ...]&#xy;  't2m_max': [item_2020_01, item_2020_02, ...]&#xy;  'vpd': [...]&#xy;  ...&#xy;}" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left" parent="1" vertex="1">
+          <mxGeometry x="780" y="110" width="320" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge-d2" parent="1" source="discover-query" target="discover-output" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- PHASE 2: Loading -->
+        <mxCell id="phase2-title" value="Phase 2: Loading" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="40" y="310" width="200" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="load-inputs" value="Inputs&#xy;&#xa;STAC Items dictionary&#xy;with file URLs" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left" parent="1" vertex="1">
+          <mxGeometry x="40" y="360" width="280" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="load-temporal" value="Handle Temporal Structures&#xa;load_variable_from_stac_items()&#xy;&#xa;Structure 1: Single Month File&#xy;  • 1 time step per file&#xy;  • Example: t2m_min_2020_01.nc&#xy;  • Shape: [1, 360, 720]&#xy;&#xa;Structure 2: Yearly Aggregation&#xy;  • 12 time steps per file&#xy;  • Example: gfed_2020.nc&#xa;  • Shape: [12, 360, 720]&#xy;&#xa;Structure 3: Full Time-Series&#xa;  • Many time steps in one file&#xa;  • Example: co2_1979_2025.nc&#xa;  • Shape: [555, 360, 720]" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left" parent="1" vertex="1">
+          <mxGeometry x="380" y="360" width="420" height="260" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge-l1" parent="1" source="load-inputs" target="load-temporal" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="load-operations" value="Loading Operations&#xy;&#xa;1. Get NetCDF URL from item.get_asset('data')&#xy;  2. Load: xr.open_dataset(url)&#xy;  3. Extract time dimension (variable name)&#xy;  4. Interpret time coordinate:&#xy;     CF-compliant time encoding&#xy;     days/hours/seconds since epoch&#xy;  5. Concatenate datasets:&#xy;     xr.concat(datasets, dim='time')" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left" parent="1" vertex="1">
+          <mxGeometry x="860" y="360" width="380" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge-l2" parent="1" source="load-temporal" target="load-operations" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="800" y="440" as="sourcePoint" />
+            <mxPoint x="860" y="440" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- PHASE 3: Validation -->
+        <mxCell id="phase3-title" value="Phase 3: Validation (CRITICAL)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1;color=#cc0000" parent="1" vertex="1">
+          <mxGeometry x="40" y="680" width="300" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="validate-inputs" value="Inputs&#xy;&#xa;Loaded variable datasets" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left" parent="1" vertex="1">
+          <mxGeometry x="40" y="730" width="280" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="validate-check" value="Validation Checks&#xa;validate_meteorology_completeness()&#xy;&#xa;For EACH variable, check:&#xy;  ✗ Missing any month in requested range&#xy;    → FAIL (cannot proceed)&#xy;&#xy;For ALL variables, check:&#xy;  ✗ Any required variable missing&#xy;    → FAIL (cannot proceed)&#xy;&#xy;Outcome:&#xy;  Success → Proceed to assembly&#xy;  Failure → Raise exception, abort" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="380" y="730" width="420" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge-v1" parent="1" source="validate-inputs" target="validate-check" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="validate-scientific" value="Scientific Rationale&#xy;&#xa;Meteorology MUST be complete:&#xy;&#xa;• Carbon cycle models require&#xy;  continuous forcing data&#xy;&#xa;• Missing months create data gaps&#xy;  that bias model results&#xy;&#xa;• FAIL-FAST approach ensures:&#xy;  Scientific validity&#xy;  No silent data quality issues&#xy;  Clear error messages" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;fontStyle=2" parent="1" vertex="1">
+          <mxGeometry x="860" y="730" width="380" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge-v2" parent="1" source="validate-check" target="validate-scientific" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="800" y="810" as="sourcePoint" />
+            <mxPoint x="860" y="810" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- PHASE 4: Assembly -->
+        <mxCell id="phase4-title" value="Phase 4: Assembly" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="40" y="1050" width="200" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="assemble-operations" value="Assembly Operations&#xa;assemble_unified_meteorology_dataset()&#xy;&#xa;1. Resolution Detection:&#xy;   - Identify resolution of each variable&#xy;   - Example: ERA5 0.25°, GFED 0.5°&#xy;&#xa;2. Regridding (if needed):&#xy;   - Coarsen to coarsest resolution (0.5°)&#xy;   - Preserve data accuracy&#xy;&#xa;3. Coordinate Normalization:&#xy;   - Longitude: 0-360° → -180° to +180°&#xy;   - Time: Align to common coordinate&#xy;&#xa;4. Land-Sea Masking (optional):&#xy;   - Apply land-sea fraction mask&#xy;   - Set ocean pixels to NaN" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left" parent="1" vertex="1">
+          <mxGeometry x="40" y="1100" width="420" height="280" as="geometry" />
+        </mxCell>
+
+        <mxCell id="assemble-output" value="Final Output&#xy;&#xa;Unified Meteorology Dataset&#xy;&#xa;xr.Dataset with:&#xy;  Dimensions:&#xy;    time: 12 (months)&#xy;    latitude: 360 (0.5° resolution)&#xy;    longitude: 720 (0.5° resolution)&#xy;&#xa;  Variables:&#xa;    T2M_MIN [K]&#xy;    T2M_MAX [K]&#xy;    VPD [hPa]&#xy;    TOTAL_PREC [mm]&#xy;    SSRD [MJ/m²/day]&#xy;    STRD [MJ/m²/day]&#xy;    SKT [K]&#xy;    SNOWFALL [mm]&#xy;    CO2 [ppm]&#xy;    BURNED_AREA [fraction]&#xy;&#xa;Authority: Meteorology time coordinate" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left" parent="1" vertex="1">
+          <mxGeometry x="520" y="1100" width="420" height="280" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge-a1" parent="1" source="assemble-operations" target="assemble-output" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Summary -->
+        <mxCell id="summary" value="Summary: Four-Phase Discovery Process&#xy;&#xa;1. Discovery: Pure metadata filtering queries STAC catalog without assumptions about structure&#xy;2. Loading: Handle 3 temporal file structures (monthly, yearly, full time-series)&#xy;3. Validation: CRITICAL - FAIL if any variable or month missing (ensures scientific validity)&#xy;4. Assembly: Regrid, normalize coordinates, apply land-sea mask, produce unified dataset&#xy;&#xa;Result: Unified meteorology dataset with meteorology as time authority" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;fontStyle=2" parent="1" vertex="1">
+          <mxGeometry x="1000" y="1100" width="360" height="220" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
