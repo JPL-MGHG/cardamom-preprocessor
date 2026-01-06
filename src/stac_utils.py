@@ -1056,14 +1056,22 @@ def write_stac_output(
 
                     # Convert to absolute path if needed
                     asset_path = Path(asset_href)
+                    logger.debug(f"Processing asset href: {asset_href} for item {item.id}")
                     if not asset_path.is_absolute():
-                        # If relative, it's relative to the main output directory
-                        asset_path = main_output_dir / asset_href
-
+                        # If asset href is already relative (from a previous write),
+                        # resolve it relative to the item's current location (items_dir)
+                        if asset_href.startswith('..'):
+                            # Existing relative path from items_dir - resolve from that location
+                            asset_path = (items_dir / asset_href).resolve()                            
+                        else:
+                            # New item - href is relative to main output directory
+                            asset_path = main_output_dir / asset_href
+                    logger.debug(f"Resolved asset path: {asset_path}")
                     # Compute relative path from item file location to asset
                     try:
-                        relative_asset_path = asset_path.relative_to(items_dir)
+                        relative_asset_path = asset_path.resolve().relative_to(items_dir.resolve(), walk_up=True)
                     except ValueError:
+                        raise ValueError(f"Could not compute relative path for asset {asset_href}. ")
                         # If can't compute relative path, try alternative approach
                         try:
                             # Get relative path from main output directory
