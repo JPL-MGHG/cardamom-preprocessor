@@ -1,0 +1,20 @@
+# Comprehensive ECMWF ERA5 Download Example
+#
+# All available meteorological variables for a single month
+# Demonstrates batch optimization: all variables downloaded in single API request
+#
+# Usage:
+#   cwltool ../process.cwl multi_variable.yml
+#   OR
+#   python -m src.stac_cli ecmwf \
+#     --variables t2m_min,t2m_max,vpd,total_prec,ssrd,strd,skt,snowfall \
+#     --year 2020 --month 1 \
+#     --output ./outputs \
+#     --verbose
+
+variables: "t2m_min,t2m_max,vpd,total_prec,ssrd,strd,skt,snowfall"
+year: 2020
+month: 1
+keep_raw: false
+verbose: true
+stac_duplicate_policy: "update"

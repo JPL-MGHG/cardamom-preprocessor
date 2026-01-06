@@ -1,0 +1,17 @@
+# Basic ECMWF ERA5 Download Example
+#
+# Single month, two variables download for testing
+#
+# Usage:
+#   cwltool ../process.cwl basic.yml
+#   OR
+#   python -m src.stac_cli ecmwf \
+#     --variables t2m_min,t2m_max \
+#     --year 2020 --month 1 \
+#     --output ./outputs \
+#     --verbose
+
+variables: "t2m_min,t2m_max"
+year: 2020
+month: 1
+verbose: true
