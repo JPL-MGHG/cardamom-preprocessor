@@ -508,6 +508,8 @@ def generate_cbf_files(
             stac_source=stac_source,
             start_date=start_date,
             end_date=end_date,
+            landmask_file_path=land_frac_file,
+            land_fraction_threshold=LAND_THRESHOLD,
         )
         logger.info(f"✓ Meteorology loaded: {list(met_data.data_vars)}")
 
