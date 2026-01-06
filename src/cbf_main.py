@@ -29,6 +29,7 @@ Workflow:
 import os
 import logging
 import numpy as np
+import pandas as pd
 import xarray as xr
 
 # Import STAC meteorology loader
@@ -259,35 +260,153 @@ def set_forcing_variables(target_ds, source_met_ds, lat, lon, scaffold_ds, posit
         target_ds['YIELD'] = xr.DataArray(data=np.zeros(num_time_steps), coords={'time': time_coord}, dims=['time'])
 
 
+def parse_time_coordinates(dataset):
+    """
+    Parse time coordinates from dataset and convert to datetime objects.
+
+    Scientific Context:
+    Time coordinates in meteorological and observational datasets may use various formats
+    (e.g., minutes since reference date, days since reference date, datetime64, etc.).
+    This function normalizes them to pandas DatetimeIndex for comparison.
+
+    Args:
+        dataset: xarray Dataset with time coordinate
+
+    Returns:
+        pandas DatetimeIndex: Datetime objects representing each time step
+        None: If dataset has no time coordinate or parsing fails
+    """
+    if 'time' not in dataset.coords:
+        return None
+
+    try:
+        # Use pandas to handle various time formats (CF conventions, etc.)
+        times = pd.to_datetime(dataset.time.values)
+        return times
+    except Exception as e:
+        logger.warning(f"Could not parse time coordinates: {e}")
+        return None
+
+
+def match_time_coordinates(obs_times, met_times):
+    """
+    Match observation time coordinates to meteorology time coordinates by year-month.
+
+    Scientific Context:
+    This function enables intelligent temporal alignment between observational data
+    (which may be from different time periods) and meteorological forcing data.
+    Matching is done at the month level to handle datasets with different day-of-month values.
+
+    Algorithm:
+    1. For each meteorological month (year, month), search for matching obs month
+    2. Return a mapping of met_index -> obs_index (or None if no match found)
+    3. This allows:
+       - Full use when periods overlap exactly (e.g., both have 2020 data)
+       - Partial use when periods overlap partially (e.g., met=2020-2024, obs=2001-2021)
+       - NaN-filling when periods don't overlap (e.g., met=2024, obs=2001-2021)
+
+    Args:
+        obs_times: pandas DatetimeIndex from observational data
+        met_times: pandas DatetimeIndex from meteorological data
+
+    Returns:
+        dict: Mapping {met_index: obs_index} where obs_index is None if no temporal match
+    """
+    time_mapping = {}
+
+    for met_idx, met_time in enumerate(met_times):
+        # Extract year-month tuple for matching
+        met_year_month = (met_time.year, met_time.month)
+
+        match_found = False
+        for obs_idx, obs_time in enumerate(obs_times):
+            obs_year_month = (obs_time.year, obs_time.month)
+
+            if met_year_month == obs_year_month:
+                time_mapping[met_idx] = obs_idx
+                match_found = True
+                logger.debug(f"Matched meteorological {met_time.strftime('%Y-%m')} to observational {obs_time.strftime('%Y-%m')}")
+                break
+
+        if not match_found:
+            time_mapping[met_idx] = None
+            logger.debug(f"No observational data found for meteorological {met_time.strftime('%Y-%m')}")
+
+    return time_mapping
+
+
 def set_observation_constraints(target_ds, source_obs_ds, lat, lon, scaffold_ds, constraint_vars, attr_copy_vars):
-    """Sets observational constraints in the target dataset."""
+    """
+    Sets observational constraints in the target dataset with intelligent temporal matching.
+
+    Scientific Context:
+    Observational constraints are optional and may come from different time periods than
+    the meteorological forcing data. This function intelligently matches them by (year, month)
+    to ensure we only use temporally-appropriate observational constraints:
+    - Uses obs data where time periods overlap
+    - Fills with NaN where no temporal match exists
+    - Always maintains the meteorological time dimension
+
+    Example behaviors:
+    - Met: 2024 (12 months), Obs: 2001-2021 → No overlap → All NaN
+    - Met: 2020 (12 months), Obs: 2001-2021 → Full overlap → All matched
+    - Met: 2020-2024 (60 months), Obs: 2001-2021 → Partial → 2020-2021 matched, 2022-2024 NaN
+    """
     # Use the updated time coordinate from target_ds (which now matches meteorological data)
     time_coord = target_ds.time
+    met_time_steps = len(time_coord)
+
+    # Parse time coordinates from both datasets for intelligent matching
+    met_times = parse_time_coordinates(target_ds)
+    obs_times = parse_time_coordinates(source_obs_ds) if source_obs_ds is not None else None
 
     for var_name in constraint_vars:
         if var_name in source_obs_ds:
             pixel_data = get_pixel_data(source_obs_ds, lat, lon, var_name)
             if pixel_data is not None:
-                # Handle time dimension mismatch with simple NaN-filling approach
                 obs_data_values = pixel_data.data if hasattr(pixel_data, 'data') else pixel_data.values
-                met_time_steps = len(time_coord)
 
                 # Check if obs data has time dimension
                 if len(obs_data_values.shape) == 0:
                     # Scalar data - broadcast to time dimension
                     final_data = np.full(met_time_steps, obs_data_values)
-                elif len(obs_data_values) == met_time_steps:
-                    # Perfect match - use as is
-                    final_data = obs_data_values
-                elif len(obs_data_values) < met_time_steps:
-                    # Less data than needed - fill with NaNs
-                    logger.warning(f"Obs data {var_name} has {len(obs_data_values)} time steps, need {met_time_steps}. Filling missing with NaN.")
-                    final_data = np.full(met_time_steps, np.nan)
-                    final_data[:len(obs_data_values)] = obs_data_values
+                    logger.debug(f"Broadcasting scalar {var_name} to {met_time_steps} time steps")
+
+                elif obs_times is None or met_times is None:
+                    # Cannot parse time coordinates - fall back to shape-based matching
+                    logger.warning(f"Cannot parse time coordinates for {var_name}. Using shape-based matching.")
+
+                    if len(obs_data_values) == met_time_steps:
+                        # Perfect match - use as is
+                        final_data = obs_data_values
+                    elif len(obs_data_values) < met_time_steps:
+                        # Less data than needed - fill with NaNs
+                        logger.warning(f"Obs data {var_name} has {len(obs_data_values)} time steps, need {met_time_steps}. Filling missing with NaN.")
+                        final_data = np.full(met_time_steps, np.nan)
+                        final_data[:len(obs_data_values)] = obs_data_values
+                    else:
+                        # More data than needed - fill with NaN (don't use mismatched data)
+                        logger.warning(f"Obs data {var_name} has {len(obs_data_values)} time steps, need {met_time_steps}. "
+                                     f"Cannot determine temporal alignment - filling with NaN.")
+                        final_data = np.full(met_time_steps, np.nan)
+
                 else:
-                    # More data than needed - truncate
-                    logger.warning(f"Obs data {var_name} has {len(obs_data_values)} time steps, need {met_time_steps}. Truncating excess data.")
-                    final_data = obs_data_values[:met_time_steps]
+                    # Intelligent temporal matching based on year-month
+                    time_mapping = match_time_coordinates(obs_times, met_times)
+                    final_data = np.full(met_time_steps, np.nan)
+
+                    matched_count = 0
+                    for met_idx, obs_idx in time_mapping.items():
+                        if obs_idx is not None:
+                            final_data[met_idx] = obs_data_values[obs_idx]
+                            matched_count += 1
+
+                    if matched_count > 0:
+                        logger.info(f"Matched {matched_count}/{met_time_steps} time steps for {var_name}")
+                    else:
+                        logger.warning(f"No temporal overlap found for {var_name} between obs data "
+                                     f"({obs_times[0].strftime('%Y-%m')} to {obs_times[-1].strftime('%Y-%m')}) and met data "
+                                     f"({met_times[0].strftime('%Y-%m')} to {met_times[-1].strftime('%Y-%m')}). Using NaN.")
 
                 target_ds[var_name] = xr.DataArray(
                     data=final_data,
@@ -298,9 +417,9 @@ def set_observation_constraints(target_ds, source_obs_ds, lat, lon, scaffold_ds,
                 if var_name in attr_copy_vars and var_name in scaffold_ds:
                     target_ds[var_name].attrs = scaffold_ds[var_name].attrs
             else:
-                logger.warning(f"Warning: Could not retrieve data for observation constraint {var_name}. Skipping.")
+                logger.warning(f"Could not retrieve data for observation constraint {var_name}. Skipping.")
         else:
-            logger.warning(f"Warning: Observation constraint variable {var_name} not found in source data.")
+            logger.warning(f"Observation constraint variable {var_name} not found in source data.")
 
 
 def set_single_value_constraints(target_ds, source_obs_ds, lat, lon, scaffold_ds):

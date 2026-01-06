@@ -169,6 +169,44 @@ The preprocessor includes functionality to generate CBF files for CARDAMOM carbo
 - Compatible temporal dimensions (or scalar for single-value constraints)
 - Proper variable naming (documented in input data specifications)
 
+### Temporal Alignment for Observational Data
+
+The CBF generation performs **intelligent temporal matching** between meteorological and observational data, ensuring observational constraints are only used when temporally appropriate:
+
+**Algorithm:**
+1. **Time Coordinate Parsing**: Extracts year-month from both meteorological and observational datasets
+2. **Month-by-Month Matching**: Matches observational data to meteorological data based on (year, month) tuples
+3. **Graceful Degradation**: Fills non-matching time steps with NaN values
+4. **Output Shape Consistency**: Always maintains the meteorological data's time dimension
+
+**Behavior Examples:**
+- Met: 2024 (12 months), Obs: 2001-2021 (252 months)
+  - **No temporal overlap** → All observational variables filled with NaN
+  - Result: Forward-only mode (meteorology only, no data assimilation)
+
+- Met: 2020 (12 months), Obs: 2001-2021 (252 months)
+  - **Complete temporal overlap** → All 12 months matched to corresponding 2020 observational data
+  - Result: Full data assimilation using 2020 observational constraints
+
+- Met: 2020-2024 (60 months), Obs: 2001-2021 (252 months)
+  - **Partial temporal overlap** → Months 2020-2021 matched, months 2022-2024 filled with NaN
+  - Result: Hybrid approach - data assimilation for overlapping period, forward-only for future period
+
+**Scientific Rationale:**
+This prevents unintended temporal mismatch where data from one decade is incorrectly used to constrain simulations for a different decade. The system is conservative: it uses observational constraints when temporally appropriate, and gracefully degrades to forward-only simulations when constraints cannot be temporally matched.
+
+**Implementation Details:**
+- Located in `cbf_main.py`: Functions `parse_time_coordinates()`, `match_time_coordinates()`, and modified `set_observation_constraints()`
+- Uses pandas `pd.to_datetime()` to handle various time coordinate formats (CF conventions, minutes/days since reference, etc.)
+- Falls back to shape-based matching if time coordinates cannot be parsed (maintains backward compatibility)
+- Logs detailed information about temporal matching results for user awareness
+
+**User Considerations:**
+- If you have observational data for the same time period as your meteorological data, the system will automatically use it
+- If your observational data is from a different period, observational variables will be NaN (fill values)
+- You can provide observational data from any time period - the system will match it appropriately
+- For projections/forecasts (e.g., 2024 simulations with 2001-2021 obs data), results will be forward-only with no observational constraints
+
 ## Scientist-Friendly Coding Standards
 
 This project prioritizes code readability for scientists who may not be proficient in Python. All implementors must follow these guidelines to ensure the codebase remains accessible to the scientific community.
