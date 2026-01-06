@@ -94,18 +94,17 @@ docker run --rm -it \
   -v $(pwd)/test_outputs:/app/outputs \
   cardamom-ecmwf:test \
   /app/ogc/ecmwf/run_ecmwf.sh \
-    --ecmwf_cds_uid YOUR_CDS_UID \
-    --ecmwf_cds_key YOUR_CDS_KEY \
+    --ecmwf_cds_key YOUR_CDS_API_KEY \
     --variables t2m_min,t2m_max \
     --year 2020 \
     --month 1 \
     --verbose
 ```
 
-**Note**: For testing, you need ECMWF CDS credentials:
+**Note**: For testing, you need ECMWF CDS API credentials:
 1. Register at https://cds.climate.copernicus.eu/
 2. Log in and go to your profile
-3. Copy your User ID and API Key
+3. Copy your API Key
 
 #### Verify outputs:
 
@@ -153,12 +152,11 @@ from maap.maap import MAAP
 maap = MAAP()
 
 # Create secrets (one-time setup)
-maap.secrets.create_secret("ECMWF_CDS_UID", "your-cds-user-id")
 maap.secrets.create_secret("ECMWF_CDS_KEY", "your-cds-api-key")
 
-# Verify secrets created
-uid = maap.secrets.get_secret("ECMWF_CDS_UID")
-print(f"Secret configured: {uid is not None}")
+# Verify secret created
+key = maap.secrets.get_secret("ECMWF_CDS_KEY")
+print(f"Secret configured: {key is not None}")
 ```
 
 #### Step 2: Build and Push Docker Image
@@ -391,12 +389,12 @@ stac_duplicate_policy: "update"
 **Error**: `Invalid credentials` or `401 Unauthorized`
 
 **Solutions:**
-1. Verify CDS credentials at https://cds.climate.copernicus.eu/user
+1. Verify CDS API key at https://cds.climate.copernicus.eu/user
 2. Check MAAP secrets are configured correctly:
    ```python
    maap = MAAP()
-   uid = maap.secrets.get_secret("ECMWF_CDS_UID")
-   print(f"UID exists: {uid is not None}")
+   key = maap.secrets.get_secret("ECMWF_CDS_KEY")
+   print(f"API Key exists: {key is not None}")
    ```
 3. For local testing, pass credentials explicitly to wrapper script
 

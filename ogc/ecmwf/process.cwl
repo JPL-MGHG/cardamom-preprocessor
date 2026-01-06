@@ -107,24 +107,6 @@ $graph:
 
       # ====== MAAP CREDENTIAL PARAMETERS (Optional) ======
 
-      ecmwf_cds_uid:
-        type: string?
-        doc: |
-          ECMWF CDS User ID (UID) for API authentication.
-
-          OPTIONAL - If not provided, the wrapper script attempts to retrieve
-          credentials from MAAP platform secrets using maap.get_secret('ECMWF_CDS_UID').
-
-          To obtain credentials:
-            1. Register at https://cds.climate.copernicus.eu/
-            2. Log in and navigate to your profile
-            3. Copy your User ID and API Key
-            4. Store in MAAP secrets (for production) or pass as parameter (for testing)
-
-          For MAAP deployment:
-            maap.secrets.create_secret('ECMWF_CDS_UID', 'your-uid')
-            maap.secrets.create_secret('ECMWF_CDS_KEY', 'your-key')
-
       ecmwf_cds_key:
         type: string?
         doc: |
@@ -253,7 +235,6 @@ $graph:
           variables: variables
           year: year
           month: month
-          ecmwf_cds_uid: ecmwf_cds_uid
           ecmwf_cds_key: ecmwf_cds_key
           keep_raw: keep_raw
           verbose: verbose
@@ -315,11 +296,6 @@ $graph:
         type: int
         inputBinding:
           prefix: --month
-
-      ecmwf_cds_uid:
-        type: string?
-        inputBinding:
-          prefix: --ecmwf_cds_uid
 
       ecmwf_cds_key:
         type: string?

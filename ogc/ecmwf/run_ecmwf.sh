@@ -13,7 +13,7 @@ source activate cardamom-ecmwf-downloader
 #   /app/ogc/ecmwf/run_ecmwf.sh \
 #     --variables t2m_min,t2m_max \
 #     --year 2020 --month 1 \
-#     [--ecmwf_cds_uid UID --ecmwf_cds_key KEY]
+#     [--ecmwf_cds_key KEY]
 #
 # The wrapper script handles:
 #   - MAAP secrets retrieval using maap-py
@@ -35,17 +35,12 @@ echo ""
 echo "[1/5] Parsing command-line arguments..."
 
 # Extract credentials if provided as arguments (for testing/override)
-ECMWF_CDS_UID=""
 ECMWF_CDS_KEY=""
 CLI_ARGS=()
 
 # Parse arguments to separate credentials from CLI args
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --ecmwf_cds_uid)
-            ECMWF_CDS_UID="$2"
-            shift 2
-            ;;
         --ecmwf_cds_key)
             ECMWF_CDS_KEY="$2"
             shift 2
@@ -66,7 +61,7 @@ echo ""
 
 echo "[2/5] Retrieving ECMWF CDS credentials..."
 
-if [[ -n "$ECMWF_CDS_UID" ]] && [[ -n "$ECMWF_CDS_KEY" ]]; then
+if [[ -n "$ECMWF_CDS_KEY" ]]; then
     # Credentials provided via CWL input parameters
     echo "  Using credentials from CWL input parameters"
     echo "  ✓ Credentials obtained (from inputs)"
@@ -83,8 +78,8 @@ try:
     maap = MAAP()
     key = maap.secrets.get_secret("ECMWF_CDS_KEY")
 
-    if not uid or not key:
-        print("ERROR: Credentials are empty", file=sys.stderr)
+    if not key:
+        print("ERROR: ECMWF_CDS_KEY credential is empty", file=sys.stderr)
         sys.exit(1)
 
     print(f"{key}")
@@ -103,8 +98,8 @@ PYTHON
         echo ""
         echo "Troubleshooting:"
         echo "  1. Ensure you are running on NASA MAAP platform"
-        echo "  2. Configure MAAP secrets with your ECMWF CDS credentials:"
-        echo "     maap.secrets.create_secret('ECMWF_CDS_KEY', 'your-key')"
+        echo "  2. Configure MAAP secrets with your ECMWF CDS API credentials:"
+        echo "     maap.secrets.create_secret('ECMWF_CDS_KEY', 'your-api-key')"
         echo "  3. Get credentials from: https://cds.climate.copernicus.eu/user"
         echo ""
         echo "Script output:"
@@ -112,7 +107,7 @@ PYTHON
         exit $EXIT_CODE
     }
 
-    # Parse secrets (first line = UID, second line = KEY)
+    # Parse secrets output (single line containing the API Key)
     ECMWF_CDS_KEY=$(echo "$SECRETS_OUTPUT" | sed -n '1p')
 fi
 
