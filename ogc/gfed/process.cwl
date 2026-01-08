@@ -1,7 +1,7 @@
 cwlVersion: v1.2
 
 # ==============================================================================
-# CARDAMOM ECMWF ERA5 Downloader - OGC Application Package for NASA MAAP
+# CARDAMOM GFED Fire Emissions Downloader - OGC Application Package for NASA MAAP
 # ==============================================================================
 
 $namespaces:
@@ -17,30 +17,24 @@ $graph:
   # ============================================================================
 
   - class: Workflow
-    id: cardamom-ecmwf-downloader
-    label: CARDAMOM ECMWF ERA5 Meteorological Data Downloader
+    id: cardamom-gfed-downloader
+    label: CARDAMOM GFED Fire Emissions Downloader
 
     doc: |
-      Downloads ERA5 reanalysis meteorological variables from ECMWF Climate Data Store
-      for CARDAMOM carbon cycle modeling. Produces analysis-ready NetCDF files with
-      STAC metadata catalogs organized by variable type.
+      Downloads Global Fire Emissions Database (GFED4) fire emissions data
+      for CARDAMOM carbon cycle modeling. Processes yearly HDF5 files and
+      produces analysis-ready NetCDF outputs with STAC metadata catalogs.
 
-      Supported meteorological variables:
-      - t2m_min, t2m_max: 2-meter temperature extrema (Kelvin)
-      - vpd: Vapor Pressure Deficit (hectopascals)
-      - total_prec: Total precipitation (millimeters)
-      - ssrd: Surface solar radiation downwards (W/m²)
-      - strd: Surface thermal radiation downwards (W/m²)
-      - skt: Skin temperature (Kelvin)
-      - snowfall: Snowfall (millimeters)
+      GFED4 provides burned area and carbon emissions estimates (2001-present)
+      at 0.25° spatial resolution, regridded to 0.5° for CARDAMOM analysis.
 
       Output format: NetCDF with CF-1.8 conventions, monthly temporal resolution,
       0.5° spatial resolution (global domain).
 
       STAC metadata includes:
       - Root catalog at outputs/catalog.json
-      - Collections organized by variable type (e.g., cardamom-meteorology)
-      - Items with comprehensive variable-specific metadata
+      - Collections organized by variable type (burned area, emissions)
+      - Items with comprehensive fire-specific metadata
 
     # Schema.org Metadata for Discoverability
     s:softwareVersion: "1.0.0"
@@ -65,68 +59,65 @@ $graph:
 
       # ====== REQUIRED PARAMETERS ======
 
-      variables:
-        type: string
-        doc: |
-          Comma-separated list of CARDAMOM meteorological variables to download.
-
-          Available variables:
-            - t2m_min: 2-meter minimum temperature (Kelvin)
-            - t2m_max: 2-meter maximum temperature (Kelvin)
-            - vpd: Vapor Pressure Deficit (hectopascals) [derived from T_max, T_dewpoint]
-            - total_prec: Total precipitation (millimeters)
-            - ssrd: Surface solar radiation downwards (W/m²)
-            - strd: Surface thermal radiation downwards (W/m²)
-            - skt: Skin temperature (Kelvin)
-            - snowfall: Snowfall (millimeters)
-
-          Example: "t2m_min,t2m_max,vpd" or "t2m_min,t2m_max,vpd,total_prec,ssrd,strd,skt,snowfall"
-
-          Note: Multiple variables are downloaded in a single CDS API request for efficiency.
-
-      year:
+      start_year:
         type: int
         doc: |
-          Year to download meteorological data.
+          First year to download (2001 or later).
 
-          ERA5 data is available from 1940 to present (updated monthly).
-          Common years for CARDAMOM: 2000-2024.
+          GFED4 data is available from 2001 onwards.
+          Typical range: 2001-2024.
 
-          Example: 2020
+          Example: 2001
 
-      month:
+      end_year:
         type: int
         doc: |
-          Month to download (1-12).
+          Last year to download (2024 or later with provisioning).
 
-          Downloads a single month of meteorological data. For multi-month datasets,
-          submit multiple jobs with different month values, or orchestrate via
-          CWL Workflow with scatter.
+          Downloads all months in years from start_year to end_year inclusive.
+          Maximum available year depends on current data provisioning.
 
-          Example: 1 (for January)
+          Example: 2024
 
       # ====== MAAP CREDENTIAL PARAMETERS (Optional) ======
 
-      ecmwf_cds_key:
+      gfed_sftp_username:
         type: string?
         doc: |
-          ECMWF CDS API Key for authentication.
+          GFED SFTP username for authentication.
 
           OPTIONAL - If not provided, retrieved from MAAP platform secrets.
-          See ecmwf_cds_uid for credential management details.
+          Requires 'GFED_SFTP_USERNAME' secret configured in MAAP.
 
-      # ====== OPTIONAL PARAMETERS ======
+      gfed_sftp_password:
+        type: string?
+        doc: |
+          GFED SFTP password for authentication.
+
+          OPTIONAL - If not provided, retrieved from MAAP platform secrets.
+          Requires 'GFED_SFTP_PASSWORD' secret configured in MAAP.
+
+      # ====== OPTIONAL INPUT FILES ======
+
+      land_sea_mask_file:
+        type: File?
+        doc: |
+          Land-sea mask NetCDF file for spatial filtering.
+
+          Optional file containing land fraction (0-1) to mask
+          non-land pixels. If provided, only pixels above
+          land_fraction_threshold are processed.
+
+      # ====== STANDARD PROCESSING OPTIONS ======
 
       keep_raw:
         type: boolean?
         default: false
         doc: |
-          If true, retains raw ERA5 files downloaded from CDS after processing.
+          If true, retains raw HDF5 files downloaded via SFTP.
 
-          Raw ERA5 files are deleted by default (save ~5GB per variable-month).
-          Set to true if you need raw NetCDF files for custom processing.
-
-          Note: Keep raw files only if needed, as they significantly increase output size.
+          Raw GFED4 HDF5 files are deleted by default (save ~20GB per year).
+          Set to true if you need raw data for custom processing.
 
       verbose:
         type: boolean?
@@ -135,7 +126,6 @@ $graph:
           Enable verbose debug logging.
 
           Prints detailed progress messages for troubleshooting.
-          Useful for diagnosing CDS API issues or download failures.
 
       no_stac_incremental:
         type: boolean?
@@ -157,8 +147,6 @@ $graph:
             - skip: Keep existing item, ignore new download
             - error: Raise error and require user decision
 
-          Set to "update" for automated re-processing, "skip" for incremental builds.
-
     # ========================================================================
     # Workflow Outputs (OGC Interface)
     # ========================================================================
@@ -168,52 +156,30 @@ $graph:
       outputs_result:
         type: Directory
         doc: |
-          Complete output directory containing:
+          Complete output directory containing GFED fire emissions data and STAC metadata.
 
           Directory structure:
             outputs/
             ├── catalog.json                      # Root STAC catalog
             ├── data/                             # Processed NetCDF files
-            │   ├── t2m_min_YYYY_MM.nc
-            │   ├── t2m_max_YYYY_MM.nc
-            │   └── vpd_YYYY_MM.nc
-            └── cardamom-meteorology/             # STAC collection (by variable type)
+            │   ├── burned_area_YYYY_MM.nc
+            │   └── carbon_emissions_YYYY_MM.nc
+            └── cardamom-gfed-fire/               # STAC collection
                 ├── collection.json               # Collection metadata
-                └── items/                        # STAC items
-                    ├── t2m_min_YYYY_MM.json
-                    ├── t2m_max_YYYY_MM.json
-                    └── vpd_YYYY_MM.json
+                └── items/                        # STAC items by variable
+                    ├── burned_area_YYYY_MM.json
+                    └── carbon_emissions_YYYY_MM.json
 
           File descriptions:
-
-            catalog.json: Root STAC catalog linking all collections and items.
-              - Provides entry point for STAC catalog discovery
-              - Links to variable-type collections
-
-            data/*.nc: Processed NetCDF files
+            catalog.json: Root STAC catalog linking all collections
+            data/*.nc: GFED fire emissions NetCDF files
               - CF-1.8 conventions compliant
-              - Dimensions: latitude (360), longitude (720), time (1 month)
               - Global 0.5° resolution
-              - Compressed with zlib (complevel=4)
-              - Fill value: -9999.0
-
-            cardamom-meteorology/collection.json: Variable-type collection metadata
-              - Describes collection extent (spatial, temporal)
-              - Lists variable types included
-              - Provides collection-level licensing/attribution
-
-            cardamom-meteorology/items/*.json: Individual STAC items
-              - One item per variable per time step
-              - Includes variable-specific metadata:
-                - cardamom:variable, cardamom:units, cardamom:source
-                - cardamom:processing steps, validation results
-              - Links to corresponding NetCDF file
-
-          STAC catalog organization follows OGC Best Practices and enables:
-            - Automated data discovery and harvesting
-            - Integration with STAC-aware platforms
-            - Machine-readable metadata for CARDAMOM processing pipelines
-            - Incremental catalog updates for multi-run workflows
+              - Monthly temporal resolution
+              - Burned area in fraction/m²
+              - Carbon emissions in gC/m²/month
+            cardamom-gfed-fire/collection.json: Collection metadata
+            cardamom-gfed-fire/items/*.json: Individual STAC items with fire metadata
 
         outputSource: download_step/outputs_result
 
@@ -232,10 +198,11 @@ $graph:
       download_step:
         run: "#main"
         in:
-          variables: variables
-          year: year
-          month: month
-          ecmwf_cds_key: ecmwf_cds_key
+          start_year: start_year
+          end_year: end_year
+          gfed_sftp_username: gfed_sftp_username
+          gfed_sftp_password: gfed_sftp_password
+          land_sea_mask_file: land_sea_mask_file
           keep_raw: keep_raw
           verbose: verbose
           no_stac_incremental: no_stac_incremental
@@ -248,12 +215,12 @@ $graph:
 
   - class: CommandLineTool
     id: main
-    label: ECMWF ERA5 Download Tool
+    label: GFED Fire Emissions Downloader Tool
 
     doc: |
-      Executes the CARDAMOM ECMWF downloader within a Docker container.
-      Handles CDS API authentication, meteorological data download, and
-      STAC metadata generation.
+      Executes the CARDAMOM GFED downloader within a Docker container.
+      Handles SFTP authentication, yearly HDF5 processing, and
+      STAC metadata generation for fire emissions data.
 
     # ======================================================================
     # Runtime Requirements
@@ -261,13 +228,13 @@ $graph:
 
     requirements:
       DockerRequirement:
-        dockerPull: ghcr.io/jpl-mghg/cardamom-preprocessor-ecmwf:latest
+        dockerPull: ghcr.io/jpl-mghg/cardamom-preprocessor:latest
 
       ResourceRequirement:
         coresMin: 2
-        ramMin: 8192  # 8GB RAM
-        tmpdirMin: 10240  # 10GB temporary storage
-        outdirMin: 51200  # 50GB output storage
+        ramMin: 16384   # 16GB RAM (for regridding operations)
+        tmpdirMin: 20480    # 20GB temporary storage
+        outdirMin: 102400   # 100GB output storage
 
       NetworkAccess:
         networkAccess: true
@@ -282,25 +249,30 @@ $graph:
 
     inputs:
 
-      variables:
-        type: string
-        inputBinding:
-          prefix: --variables
-
-      year:
+      start_year:
         type: int
         inputBinding:
-          prefix: --year
+          prefix: --start-year
 
-      month:
+      end_year:
         type: int
         inputBinding:
-          prefix: --month
+          prefix: --end-year
 
-      ecmwf_cds_key:
+      gfed_sftp_username:
         type: string?
         inputBinding:
-          prefix: --ecmwf_cds_key
+          prefix: --gfed_sftp_username
+
+      gfed_sftp_password:
+        type: string?
+        inputBinding:
+          prefix: --gfed_sftp_password
+
+      land_sea_mask_file:
+        type: File?
+        inputBinding:
+          prefix: --land-sea-mask-file
 
       keep_raw:
         type: boolean?
@@ -346,6 +318,6 @@ $graph:
     # Command Execution
     # ======================================================================
 
-    baseCommand: ["/app/ogc/ecmwf/run_ecmwf.sh"]
+    baseCommand: ["/app/ogc/gfed/run_gfed.sh"]
 
     successCodes: [0]

@@ -26,17 +26,31 @@ This ensures algorithms run consistently across different OGC-compliant platform
 ```
 ogc/
 ├── README.md                          # This file
-├── ecmwf/                             # ECMWF ERA5 downloader package
+├── Dockerfile                         # Unified Docker image for all packages
+├── ecmwf/                             # ECMWF ERA5 meteorology downloader
 │   ├── process.cwl                    # CWL workflow definition
-│   ├── Dockerfile                     # Container image specification
-│   ├── run_ecmwf.sh                   # MAAP secrets + CLI wrapper script
+│   ├── run_ecmwf.sh                   # MAAP secrets wrapper script
 │   └── examples/
-│       ├── basic.yml                  # Simple single-month example
+│       ├── basic.yml                  # Single-month example
 │       └── multi_variable.yml         # Multi-variable example
-├── noaa/                              # NOAA CO₂ downloader (future)
-│   └── .gitkeep
-└── gfed/                              # GFED fire emissions downloader (future)
-    └── .gitkeep
+├── noaa/                              # NOAA CO₂ concentration downloader
+│   ├── process.cwl                    # CWL workflow definition
+│   ├── run_noaa.sh                    # Wrapper script (public data, no credentials)
+│   └── examples/
+│       ├── basic.yml                  # Single-month example
+│       └── full_timeseries.yml        # Complete timeseries example
+├── gfed/                              # GFED fire emissions downloader
+│   ├── process.cwl                    # CWL workflow definition
+│   ├── run_gfed.sh                    # SFTP credentials wrapper script
+│   └── examples/
+│       ├── single_year.yml            # Single year example
+│       └── multi_year.yml             # Multi-year batch example
+└── cbf/                               # CBF file generator (STAC-based)
+    ├── process.cwl                    # CWL workflow definition
+    ├── run_cbf.sh                     # Wrapper script (no credentials needed)
+    └── examples/
+        ├── basic.yml                  # CONUS region example
+        └── with_files.yml             # Example with optional input files
 ```
 
 ## Package Details: ECMWF ERA5 Downloader
@@ -294,43 +308,181 @@ python -m src.stac_cli ecmwf \
     --stac-duplicate-policy update
 ```
 
-## Extending to Other Downloaders
+## Package Details: NOAA CO₂ Downloader
 
-### NOAA CO₂ Downloader (No Credentials Required)
+### Purpose
 
-Create `ogc/noaa/` with similar structure:
+Downloads global CO₂ concentration data from NOAA Global Monitoring Laboratory for CARDAMOM carbon cycle modeling. Produces NetCDF files with STAC metadata catalogs. Data spans from 1974 to present (monthly resolution).
 
-**Key differences from ECMWF:**
-- No credentials needed (public data)
-- Simpler wrapper script (skip MAAP secrets retrieval)
-- CLI: `python -m src.stac_cli noaa --year 2020 --month 1`
-- Optional parameters: `--year`, `--month` (if omitted, downloads all available data)
+### Key Features
 
-**Template approach:**
-1. Copy `ogc/ecmwf/` to `ogc/noaa/`
-2. Modify `process.cwl` to remove credential inputs
-3. Modify `run_ecmwf.sh` to `run_noaa.sh` (skip secrets retrieval)
-4. Update CLI command in wrapper script
-5. Update documentation
+- **No credentials required** - Public NOAA data via HTTPS
+- **Optional time parameters** - Can download single month or entire timeseries
+- **Simple wrapper** - No secrets retrieval needed (unlike ECMWF)
+- **STAC output** - Organized by measurement type with full metadata
 
-### GFED Fire Emissions Downloader (SFTP Credentials)
+### Usage Example
 
-Create `ogc/gfed/` with similar structure:
+```bash
+# Download single month
+cwltool ogc/noaa/process.cwl ogc/noaa/examples/basic.yml
 
-**Key differences from ECMWF:**
-- SFTP credentials (username/password)
-- MAAP secrets: `GFED_SFTP_USERNAME`, `GFED_SFTP_PASSWORD`
-- Batch yearly processing: `--start-year 2001 --end-year 2024`
-- CLI: `python -m src.stac_cli gfed --start-year 2001 --end-year 2024`
-- Larger data volumes (~100GB per year range)
+# Download entire timeseries (all available data)
+cwltool ogc/noaa/process.cwl ogc/noaa/examples/full_timeseries.yml
+```
 
-**Template approach:**
-1. Copy `ogc/ecmwf/` to `ogc/gfed/`
-2. Modify `process.cwl` for GFED-specific inputs/outputs
-3. Modify wrapper script to retrieve SFTP credentials
-4. Update CLI command and parameters
-5. Adjust resource requirements (larger output storage)
-6. Update documentation
+### CLI Command
+
+```bash
+python -m src.stac_cli noaa \
+  [--year YEAR] \
+  [--month MONTH] \
+  --output OUTPUT \
+  [--verbose] \
+  [--no-stac-incremental] \
+  [--stac-duplicate-policy {update,skip,error}]
+```
+
+---
+
+## Package Details: GFED Fire Emissions Downloader
+
+### Purpose
+
+Downloads Global Fire Emissions Database (GFED4) fire emissions data for CARDAMOM carbon cycle modeling. Processes yearly HDF5 files from SFTP server and produces analysis-ready NetCDF outputs. Data spans 2001-present at 0.25° resolution, regridded to 0.5° for CARDAMOM analysis.
+
+### Key Features
+
+- **SFTP credentials required** - Username/password from MAAP secrets
+- **Batch yearly processing** - Downloads year ranges (e.g., 2001-2024)
+- **Large data volumes** - ~100GB per year range
+- **Land-sea masking** - Optional spatial filtering via mask file
+- **STAC output** - Organized by variable type with comprehensive metadata
+
+### MAAP Secrets Configuration
+
+Before deploying, configure GFED SFTP credentials in MAAP:
+
+```python
+from maap.maap import MAAP
+
+maap = MAAP()
+maap.secrets.create_secret("GFED_SFTP_USERNAME", "sftp-username")
+maap.secrets.create_secret("GFED_SFTP_PASSWORD", "sftp-password")
+```
+
+### Usage Example
+
+```bash
+# Download single year
+cwltool ogc/gfed/process.cwl ogc/gfed/examples/single_year.yml
+
+# Download multi-year batch
+cwltool ogc/gfed/process.cwl ogc/gfed/examples/multi_year.yml
+```
+
+### CLI Command
+
+```bash
+python -m src.stac_cli gfed \
+  --start-year START_YEAR \
+  --end-year END_YEAR \
+  --output OUTPUT \
+  [--keep-raw] \
+  [--verbose] \
+  [--no-stac-incremental] \
+  [--stac-duplicate-policy {update,skip,error}] \
+  [--land-sea-mask-file FILE]
+```
+
+---
+
+## Package Details: CBF File Generator
+
+### Purpose
+
+Generates CARDAMOM CBF (CARDAMOM Binary Format) input files for carbon cycle data assimilation. Consumes STAC catalogs from preprocessor downloaders (ECMWF, NOAA, GFED) and optional observational constraint files. Produces pixel-specific CBF NetCDF files ready for CARDAMOM model runs.
+
+### Key Features
+
+- **STAC-based input discovery** - Reads meteorological data from STAC catalogs
+- **Multi-source support** - Combines meteorology + optional observations
+- **Graceful degradation** - Missing observational data NaN-filled for forward-mode processing
+- **No credentials required** - Reads from files and catalogs only
+- **Pixel-level processing** - Generates one CBF file per valid land pixel
+- **MCMC ready** - Includes configuration for data assimilation
+
+### Workflow
+
+1. Discover meteorological variables from STAC catalog (required)
+2. Load optional observational constraint files
+3. Extract pixel-level data for spatial domain
+4. Generate CARDAMOM-ready CBF NetCDF files
+
+### Usage Example
+
+```bash
+# Basic CONUS example (meteorology only)
+cwltool ogc/cbf/process.cwl ogc/cbf/examples/basic.yml
+
+# With observational constraints
+cwltool ogc/cbf/process.cwl ogc/cbf/examples/with_files.yml
+```
+
+### CLI Command
+
+```bash
+python -m src.stac_cli cbf-generate \
+  --stac-api STAC_API \
+  --start START_DATE \
+  --end END_DATE \
+  --output OUTPUT \
+  [--region {global,conus}] \
+  [--land-fraction-file FILE] \
+  [--obs-driver-file FILE] \
+  [--som-file FILE] \
+  [--fir-file FILE] \
+  [--scaffold-file FILE] \
+  [--verbose]
+```
+
+---
+
+## Unified Docker Image
+
+All packages (ECMWF, NOAA, GFED, CBF) share a single Docker image: `ghcr.io/jpl-mghg/cardamom-preprocessor:latest`
+
+### Build Instructions
+
+```bash
+# Build unified image
+docker build -t ghcr.io/jpl-mghg/cardamom-preprocessor:latest -f ogc/Dockerfile .
+
+# Test ECMWF package
+docker run --rm -it \
+  -v $(pwd)/test_outputs:/app/outputs \
+  ghcr.io/jpl-mghg/cardamom-preprocessor:latest \
+  /app/ogc/ecmwf/run_ecmwf.sh \
+    --ecmwf_cds_key YOUR_KEY \
+    --variables t2m_min,t2m_max \
+    --year 2020 --month 1
+
+# Test NOAA package (no credentials)
+docker run --rm -it \
+  -v $(pwd)/test_outputs:/app/outputs \
+  ghcr.io/jpl-mghg/cardamom-preprocessor:latest \
+  /app/ogc/noaa/run_noaa.sh \
+    --year 2020 --month 1
+```
+
+### Resource Requirements by Package
+
+| Package | RAM | Cores | Temp | Output | Network | Time |
+|---------|-----|-------|------|--------|---------|------|
+| ECMWF | 8GB | 2 | 10GB | 50GB | Yes | 15-60min |
+| NOAA | 4GB | 1 | 5GB | 10GB | Yes | 5-15min |
+| GFED | 16GB | 2 | 20GB | 100GB | Yes (SFTP) | 1-4hrs |
+| CBF | 16GB | 4 | 10GB | 20GB | No | 30min-2hr |
 
 ## File Descriptions
 
@@ -344,22 +496,55 @@ OGC entry point defining:
 
 Validated with: `cwltool --validate process.cwl`
 
-### Dockerfile
+### Dockerfile (Unified)
 
-Multi-stage Docker build containing:
-- Stage 1 (Builder): Create conda environment, install maap-py
-- Stage 2 (Production): Copy environment, source code, configure entrypoint
+Multi-stage Docker build (`ogc/Dockerfile`) containing all packages:
+- Stage 1 (Builder): Create conda environment, install maap-py, dependencies
+- Stage 2 (Production): Copy environment, all source code, all wrapper scripts
 
-Build with: `docker build -t cardamom-ecmwf:test -f ogc/ecmwf/Dockerfile .`
+Key feature: Single image serves ECMWF, NOAA, GFED, and CBF packages via different entrypoints
 
-### run_ecmwf.sh
+Build with: `docker build -t ghcr.io/jpl-mghg/cardamom-preprocessor:latest -f ogc/Dockerfile .`
 
-MAAP wrapper script handling:
-1. Credential retrieval from MAAP secrets or CWL inputs
-2. CDS API configuration (~/.cdsapirc creation)
-3. Output directory preparation
-4. Core CLI invocation
-5. Status reporting and error handling
+Historical note: Package-specific Dockerfiles (e.g., `ogc/ecmwf/Dockerfile`) are deprecated. Use unified image instead.
+
+### Wrapper Scripts
+
+Each package has a platform-specific wrapper script handling integration with MAAP:
+
+#### run_ecmwf.sh (ECMWF ERA5)
+1. Parse CLI arguments
+2. Retrieve ECMWF CDS API credentials from MAAP secrets (or CLI inputs)
+3. Configure CDS API authentication (~/.cdsapirc file)
+4. Prepare output directory
+5. Invoke core CLI: `python -m src.stac_cli ecmwf ...`
+6. Report success/failure with output statistics
+
+#### run_noaa.sh (NOAA CO₂)
+1. Validate arguments
+2. Prepare output directory (no credentials needed)
+3. Invoke core CLI: `python -m src.stac_cli noaa ...`
+4. Report success/failure with output statistics
+
+**Key difference:** Simpler than ECMWF (public data, no API key needed)
+
+#### run_gfed.sh (GFED Fire)
+1. Parse CLI arguments
+2. Retrieve GFED SFTP credentials from MAAP secrets (or CLI inputs)
+3. Export credentials as environment variables
+4. Prepare output directory
+5. Invoke core CLI: `python -m src.stac_cli gfed ...`
+6. Report success/failure with output statistics
+
+**Key difference:** Retrieves SFTP username/password for GFED data access
+
+#### run_cbf.sh (CBF Generator)
+1. Validate STAC API source (file:// or https://)
+2. Prepare output directory
+3. Invoke core CLI: `python -m src.stac_cli cbf-generate ...`
+4. Report success/failure with CBF file counts
+
+**Key difference:** No credentials (reads from files/catalogs only)
 
 ### examples/basic.yml
 

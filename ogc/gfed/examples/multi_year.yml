@@ -1,0 +1,24 @@
+# CARDAMOM GFED Fire Emissions Downloader - Multi-Year Example
+#
+# Downloads GFED4 fire emissions for a multi-year range (2001-2024)
+# Processes each yearly HDF5 file and generates monthly NetCDF outputs
+# Requires GFED SFTP credentials configured in MAAP platform
+
+# Download 2001-2024 (all available data)
+start_year: 2001
+end_year: 2024
+
+# SFTP credentials will be retrieved from MAAP secrets if not provided
+# To override with explicit credentials:
+# gfed_sftp_username: "your-username"
+# gfed_sftp_password: "your-password"
+
+# Standard processing options
+# Note: Multi-year download may take several hours and use significant storage
+keep_raw: false
+verbose: true
+no_stac_incremental: false
+stac_duplicate_policy: update
+
+# Optional: Specify land-sea mask file for spatial filtering
+# land_sea_mask_file: /path/to/land_mask.nc
