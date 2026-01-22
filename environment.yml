@@ -2,7 +2,7 @@ name: cardamom-ecmwf-downloader
 channels:
   - conda-forge
 dependencies:
-  - python=3.9
+  - python=3.12
   - pip
   # Core data processing
   - numpy
