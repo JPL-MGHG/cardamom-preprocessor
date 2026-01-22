@@ -533,6 +533,91 @@ def set_mcmc_attributes(target_ds, iterations, samples):
         logger.warning("Warning: MCMCID variable not found in target dataset. Cannot set MCMC attributes.")
 
 
+def compute_day_of_year(dataset):
+    """
+    Compute Day of Year (DOY) variable from time coordinate.
+
+    Scientific Context:
+    Day of Year (DOY) represents the fractional day within the annual cycle,
+    ranging from ~0 (January 1) to ~365 (December 31). This is used by
+    CARDAMOM for phenological calculations and seasonal cycle tracking.
+
+    The DOY is computed as a 0-indexed day (0-365) plus a fractional component
+    based on the time of day (hours, minutes, seconds). January 1st at 00:00
+    corresponds to DOY=0.0, while January 1st at 12:00 corresponds to DOY=0.5.
+
+    Args:
+        dataset: xarray Dataset with time coordinate
+
+    Returns:
+        numpy array: Fractional day of year for each time step
+    """
+    if 'time' not in dataset.coords:
+        logger.warning("No time coordinate found - cannot compute DOY")
+        return None
+
+    try:
+        # Convert time coordinate to datetime objects
+        times = pd.to_datetime(dataset.time.values)
+
+        # Compute day of year for each time step
+        doy_values = np.zeros(len(times), dtype=np.float32)
+
+        for i, time_val in enumerate(times):
+            # Get integer day of year using 0-based indexing (0-365)
+            # pandas dayofyear is 1-based, so subtract 1
+            day_of_year_integer = time_val.dayofyear - 1
+
+            # Get fractional component: (hour + minute/60 + second/3600) / 24
+            fractional_day = (time_val.hour + time_val.minute / 60.0 + time_val.second / 3600.0) / 24.0
+
+            # Combine: DOY = integer_day + fractional_part (0-indexed)
+            doy_values[i] = day_of_year_integer + fractional_day
+
+        logger.debug(f"Computed DOY for {len(times)} time steps")
+        return doy_values
+
+    except Exception as e:
+        logger.error(f"Error computing day of year: {e}")
+        return None
+
+
+def add_doy_variable(target_ds):
+    """
+    Add Day of Year (DOY) variable to the target dataset.
+
+    Scientific Context:
+    DOY is essential for phenological calculations in carbon cycle models.
+    It provides the seasonal cycle information that constrains photosynthesis,
+    respiration, and allocation processes in CARDAMOM.
+
+    Args:
+        target_ds: xarray Dataset to which DOY will be added
+    """
+    if 'time' not in target_ds.coords:
+        logger.warning("Cannot add DOY - no time coordinate in dataset")
+        return
+
+    doy_values = compute_day_of_year(target_ds)
+
+    if doy_values is not None:
+        time_coord = target_ds.time
+
+        target_ds['DOY'] = xr.DataArray(
+            data=doy_values,
+            coords={'time': time_coord},
+            dims=['time'],
+            attrs={
+                'units': 'day',
+                'long_name': 'Day of year (fractional)',
+                'description': 'Integer day of year (1-366) plus fractional day based on time of day'
+            }
+        )
+        logger.debug(f"Added DOY variable to dataset (min={doy_values.min():.2f}, max={doy_values.max():.2f})")
+    else:
+        logger.warning("Could not compute DOY - variable will not be added")
+
+
 def finalize_and_save(dataset, output_filepath):
     """Finalizes dataset (renaming, encoding) and saves to NetCDF."""
     final_ds = dataset.copy()
@@ -790,10 +875,13 @@ def generate_cbf_files(
             # f. Adjust assimilation attributes
             adjust_assimilation_attributes(pixel_ds)
 
-            # g. Set MCMC attributes
+            # g. Add Day of Year (DOY) variable for phenological calculations
+            add_doy_variable(pixel_ds)
+
+            # h. Set MCMC attributes
             set_mcmc_attributes(pixel_ds, MCMC_ITERATIONS, MCMC_SAMPLES)
 
-            # h. Finalize and save
+            # i. Finalize and save
             finalize_and_save(pixel_ds, str(output_file))
 
             successful_pixels += 1
