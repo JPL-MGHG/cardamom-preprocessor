@@ -230,7 +230,7 @@ $graph:
 
     steps:
       download_step:
-        run: "#download-ecmwf"
+        run: "#main"
         in:
           variables: variables
           year: year
@@ -247,7 +247,7 @@ $graph:
   # ============================================================================
 
   - class: CommandLineTool
-    id: download-ecmwf
+    id: main
     label: ECMWF ERA5 Download Tool
 
     doc: |
