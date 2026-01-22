@@ -34,7 +34,7 @@ COPY --from=builder /opt/conda/envs/cardamom-ecmwf-downloader /opt/conda/envs/ca
 # Set environment variables to use conda environment by default
 ENV PATH="/opt/conda/envs/cardamom-ecmwf-downloader/bin:$PATH"
 ENV CONDA_DEFAULT_ENV="cardamom-ecmwf-downloader"
-ENV PYTHONPATH="/app:${PYTHONPATH}"
+ENV PYTHONPATH="/app"
 ENV PYTHONUNBUFFERED="1"
 
 # Set working directory for application
