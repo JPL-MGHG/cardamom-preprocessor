@@ -1,0 +1,36 @@
+# CARDAMOM CBF Generator - Full Example with Optional Files
+#
+# Generates CBF files with meteorological data from STAC catalog
+# and observational constraints from user-provided files
+
+# STAC catalog containing meteorological data
+# Typically points to output from ECMWF/NOAA/GFED downloaders
+stac_api: file:///outputs/cardamom-ecmwf/catalog.json
+
+# Time period for CBF generation
+start: 2020-01
+end: 2020-12
+
+# Geographic region
+region: conus
+
+# Optional: Land-sea fraction mask file for spatial filtering
+# Only pixels with land_fraction > threshold will be processed
+land_fraction_file: /path/to/CARDAMOM-MAPS_05deg_LAND_SEA_FRAC.nc
+
+# Optional: Observational constraint data file
+# Contains: LAI, GPP, ABGB, EWT
+# Missing data is gracefully NaN-filled for degraded processing
+obs_driver_file: /path/to/AlltsObs05x05newbiomass_LFmasked.nc
+
+# Optional: Soil Organic Matter initialization file
+som_file: /path/to/CARDAMOM-MAPS_05deg_HWSD_PEQ_iniSOM.nc
+
+# Optional: Fire emissions file
+fir_file: /path/to/CARDAMOM-MAPS_05deg_GFED4_Mean_FIR.nc
+
+# Optional: CBF scaffold template file for copying attributes
+scaffold_file: /path/to/fluxval_US-NR1_1100_LAI.cbf.nc
+
+# Processing options
+verbose: true

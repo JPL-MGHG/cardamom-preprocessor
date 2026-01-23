@@ -1,0 +1,19 @@
+# CARDAMOM CBF Generator - Basic Example
+#
+# Generates CBF files for CONUS region using STAC-discovered meteorology
+# No observational constraint files required (graceful degradation with NaN-filling)
+
+# STAC catalog containing meteorological data
+# Can be local file:// or remote https:// URL
+stac_api: file:///outputs/catalog.json
+
+# Time period for CBF generation
+# Must have corresponding data in STAC catalog
+start: 2020-01
+end: 2020-12
+
+# Geographic region (conus or global)
+region: conus
+
+# Optional: Enable verbose output for debugging
+verbose: true

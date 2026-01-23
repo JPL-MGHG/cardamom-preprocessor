@@ -1,0 +1,14 @@
+# CARDAMOM NOAA CO2 Downloader - Full Timeseries Example
+#
+# Downloads entire available CO2 concentration time series (1974-present)
+# Omitting year and month parameters triggers download of all available data
+# No credentials required (public NOAA data)
+
+# Omit year and month to download entire timeseries
+# year: (omitted - downloads all)
+# month: (omitted - downloads all)
+
+# Standard processing options
+verbose: true
+no_stac_incremental: false
+stac_duplicate_policy: update

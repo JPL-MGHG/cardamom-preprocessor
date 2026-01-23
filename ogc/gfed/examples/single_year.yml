@@ -1,0 +1,19 @@
+# CARDAMOM GFED Fire Emissions Downloader - Single Year Example
+#
+# Downloads GFED4 fire emissions for a single year (2020)
+# Requires GFED SFTP credentials configured in MAAP platform
+
+# Download 2020 only
+start_year: 2020
+end_year: 2020
+
+# SFTP credentials will be retrieved from MAAP secrets if not provided
+# To override, set:
+# gfed_sftp_username: "your-username"
+# gfed_sftp_password: "your-password"
+
+# Standard processing options
+keep_raw: false
+verbose: true
+no_stac_incremental: false
+stac_duplicate_policy: update

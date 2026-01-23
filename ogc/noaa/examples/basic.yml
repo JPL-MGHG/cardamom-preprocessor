@@ -1,0 +1,13 @@
+# CARDAMOM NOAA CO2 Downloader - Basic Example
+#
+# Downloads CO2 concentration data for a single month
+# No credentials required (public NOAA data)
+
+# Year to download
+year: 2020
+
+# Month to download (1-12)
+month: 1
+
+# Optional parameters
+verbose: true
