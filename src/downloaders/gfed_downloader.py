@@ -846,11 +846,13 @@ class GFEDDownloader(BaseDownloader):
         )
 
         # Step 5: Reconstruct post-2016 burned area using climatology
-        if end_year > 2016:
+        # Only perform reconstruction if 2016 is in the data range
+        if end_year > 2016 and start_year <= 2016:
             logger.info("Reconstructing post-2016 burned area using climatological method...")
 
             # Split into reference period (2001-2016) and post-2016
-            idx_2016_end = (2016 - start_year + 1) * 12  # 192 if start_year=2001
+            # Calculate index for end of 2016 relative to start_year
+            idx_2016_end = (2016 - start_year + 1) * 12
 
             ba_reference = burned_area_05[:, :, :idx_2016_end]
             fe_reference = fire_emissions_05[:, :, :idx_2016_end]
@@ -865,6 +867,12 @@ class GFEDDownloader(BaseDownloader):
             burned_area_05[:, :, idx_2016_end:] = ba_reconstructed
 
             logger.info("Post-2016 burned area reconstruction complete")
+        elif end_year > 2016 and start_year > 2016:
+            logger.info(
+                f"Skipping post-2016 burned area reconstruction: "
+                f"start_year ({start_year}) is after climatology reference period (2001-2016). "
+                f"Post-2016 burned area will be NaN."
+            )
 
         # Step 6: Convert fire emissions to daily rates
         logger.info("Converting fire emissions from monthly to daily rates...")
