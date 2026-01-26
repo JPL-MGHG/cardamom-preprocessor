@@ -506,7 +506,7 @@ def adjust_assimilation_attributes(target_ds):
     # Photosynthesis assimilation (GPP)
     if 'GPP' in target_ds:
         target_ds.GPP.attrs.update({
-            'single_unc': 1.30,
+            'unc': 1.30,
             'opt_unc_type': 1.0,
             'min_threshold': 1.0,
             'units': 'gC/m2/day',
@@ -518,7 +518,7 @@ def adjust_assimilation_attributes(target_ds):
         target_ds.EWT.attrs.update({
             'opt_normalization': 1.0,
             'opt_filter': 0.0,
-            'single_unc': 200.0,
+            'unc': 200.0,
             'units': 'mm',
             'source': 'GRACE'
         })
