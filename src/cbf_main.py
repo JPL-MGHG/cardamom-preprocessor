@@ -95,10 +95,11 @@ POSITIVE_FORCING_VARS = [
 ]
 
 # Variables for setting observational constraints
-OBS_CONSTRAINT_VARS = ['SCF', 'GPP', 'ABGB', 'EWT']
+# CRITICAL: LAI must be included as time series (not just scalar Mean_LAI)
+OBS_CONSTRAINT_VARS = ['LAI', 'SCF', 'GPP', 'ABGB', 'EWT']
 
 # Variables needing attributes copied from scaffold
-OBS_ATTR_COPY_VARS = ['ABGB', 'GPP', 'SCF']
+OBS_ATTR_COPY_VARS = ['LAI', 'ABGB', 'GPP', 'SCF']
 
 # MCMC Settings
 MCMC_ITERATIONS = 500000.0
@@ -423,41 +424,112 @@ def set_observation_constraints(target_ds, source_obs_ds, lat, lon, scaffold_ds,
 
 
 def set_single_value_constraints(target_ds, source_obs_ds, lat, lon, scaffold_ds):
-    """Sets single-value constraints like initial SOM, CUE, Mean LAI, Mean FIR."""
-    # PEQ_iniSOM
+    """
+    Sets single-value constraints like initial SOM, CUE, Mean LAI, Mean FIR.
+
+    Scientific Context:
+    Prior Equivalent Constraints (PEQ) provide Bayesian priors for model parameters.
+    These are essential for constraining the 89 DALEC parameters when observations alone
+    are insufficient. Each PEQ parameter represents prior knowledge about ecosystem
+    properties at this pixel.
+    """
+    # PEQ_iniSOM (Initial Soil Organic Matter)
     som_data = get_pixel_data(source_obs_ds, lat, lon, 'SOM')
     if som_data is not None:
         target_ds['PEQ_iniSOM'] = xr.DataArray(
             data=som_data.item(),  # Should be scalar
             coords={'latitude': lat, 'longitude': lon},  # Use actual lat/lon
             dims=[],  # Scalar has no dims
-            attrs=scaffold_ds['PEQ_iniSOM'].attrs  # Copy scaffold attrs first
+            attrs=scaffold_ds['PEQ_iniSOM'].attrs if 'PEQ_iniSOM' in scaffold_ds else {}
         )
         # Update specific attributes
         target_ds['PEQ_iniSOM'].attrs['units'] = 'gC/m2'
         target_ds['PEQ_iniSOM'].attrs['source'] = 'HWSD'
+        target_ds['PEQ_iniSOM'].attrs['unc'] = 1.5
+        target_ds['PEQ_iniSOM'].attrs['opt_unc_type'] = 1.0
     else:
         logger.warning("Warning: Could not retrieve SOM data.")
 
     # PEQ_CUE (Carbon Use Efficiency) - Fixed value
-    target_ds['PEQ_CUE'] = 0.5
+    target_ds['PEQ_CUE'] = xr.DataArray(
+        data=0.5,
+        coords={'latitude': lat, 'longitude': lon},
+        dims=[]
+    )
     target_ds['PEQ_CUE'].attrs = {
         'opt_unc_type': 0.0,
         'unc': 0.25,
         'description': 'Carbon use efficiency constraint'
-        # Add units if applicable/known
     }
 
-    # Mean_LAI
+    # PEQ_Cefficiency (Carbon Efficiency) - REQUIRED but MISSING
+    # TODO: Source from ecological database or model prior
+    logger.warning("Warning: PEQ_Cefficiency not implemented - requires ecological prior data")
+
+    # PEQ_NBEmrg (Net Biome Exchange merge parameter) - REQUIRED but MISSING
+    # TODO: Source from literature or previous MCMC runs
+    logger.warning("Warning: PEQ_NBEmrg not implemented - requires calibration data")
+
+    # PEQ_iniSnow (Initial Snow) - REQUIRED but MISSING
+    # TODO: Source from satellite or model data
+    logger.warning("Warning: PEQ_iniSnow not implemented - requires snow initialization data")
+
+    # PEQ_LCMA (Leaf Carbon to Mass Ratio) - REQUIRED but MISSING
+    # TODO: Source from allometric equations or database
+    logger.warning("Warning: PEQ_LCMA not implemented - requires leaf trait data")
+
+    # PEQ_clumping (Clumping Index for LAI) - REQUIRED but MISSING
+    # TODO: Source from LAI/optical properties database
+    logger.warning("Warning: PEQ_clumping not implemented - requires LAI clumping data")
+
+    # Mean_LAI (Annual average LAI)
     lai_data = get_pixel_data(source_obs_ds, lat, lon, 'LAI')
     if lai_data is not None:
-        mean_lai_value = lai_data.mean(dim='time', skipna=True).item()  # Calculate mean over time
-        target_ds['Mean_LAI'] = xr.DataArray(data=mean_lai_value, coords={'latitude': lat, 'longitude': lon}, dims=[])
+        # Check if LAI has time dimension
+        if hasattr(lai_data, 'dims') and len(lai_data.dims) > 0:
+            # Time series LAI - calculate mean
+            mean_lai_value = lai_data.mean(dim='time', skipna=True).item()
+        else:
+            # Scalar LAI
+            mean_lai_value = lai_data.item() if hasattr(lai_data, 'item') else lai_data
+
+        target_ds['Mean_LAI'] = xr.DataArray(
+            data=mean_lai_value,
+            coords={'latitude': lat, 'longitude': lon},
+            dims=[]
+        )
         # Attributes set later in adjust_assimilation_attributes
+        logger.debug(f"Set Mean_LAI = {mean_lai_value:.2f} m2/m2")
     else:
         logger.warning("Warning: Could not retrieve LAI data.")
 
-    # Mean_FIR
+    # Mean_GPP (Annual average GPP) - OPTIONAL but RECOMMENDED
+    gpp_data = get_pixel_data(source_obs_ds, lat, lon, 'GPP')
+    if gpp_data is not None and hasattr(gpp_data, 'dims') and len(gpp_data.dims) > 0:
+        mean_gpp_value = gpp_data.mean(dim='time', skipna=True).item()
+        target_ds['Mean_GPP'] = xr.DataArray(
+            data=mean_gpp_value,
+            coords={'latitude': lat, 'longitude': lon},
+            dims=[]
+        )
+        logger.debug(f"Set Mean_GPP = {mean_gpp_value:.2f} gC/m2/day")
+    else:
+        logger.debug("Mean_GPP not available in source data")
+
+    # Mean_ABGB (Annual average Above-Ground Biomass) - OPTIONAL but RECOMMENDED
+    abgb_data = get_pixel_data(source_obs_ds, lat, lon, 'ABGB')
+    if abgb_data is not None and hasattr(abgb_data, 'dims') and len(abgb_data.dims) > 0:
+        mean_abgb_value = abgb_data.mean(dim='time', skipna=True).item()
+        target_ds['Mean_ABGB'] = xr.DataArray(
+            data=mean_abgb_value,
+            coords={'latitude': lat, 'longitude': lon},
+            dims=[]
+        )
+        logger.debug(f"Set Mean_ABGB = {mean_abgb_value:.2f} gC/m2")
+    else:
+        logger.debug("Mean_ABGB not available in source data")
+
+    # Mean_FIR (Annual average Fire Emissions)
     fir_data = get_pixel_data(source_obs_ds, lat, lon, 'Mean_FIR')
     if fir_data is not None:
         target_ds['Mean_FIR'] = xr.DataArray(
@@ -482,7 +554,18 @@ def adjust_assimilation_attributes(target_ds):
             'source': 'GFED4 mean CO2 fire emissions'  # Original had this on Mean_LAI attrs? Correcting placement.
         })
 
-    # LAI assimilation (Mean_LAI)
+    # LAI time series assimilation (Critical for photosynthesis constraints)
+    if 'LAI' in target_ds:
+        target_ds.LAI.attrs.update({
+            'unc': 1.2,
+            'opt_unc_type': 1.0,
+            'min_threshold': 0.2,
+            'units': 'm2/m2',
+            'source': 'MODIS LAI',
+            'long_name': 'Leaf Area Index time series'
+        })
+
+    # LAI assimilation (Mean_LAI - annual average)
     if 'Mean_LAI' in target_ds:
         target_ds.Mean_LAI.attrs.update({
             'unc': 1.2,
@@ -492,7 +575,10 @@ def adjust_assimilation_attributes(target_ds):
             'source': 'MODIS LAI'
         })
 
-    # Biomass assimilation (ABGB) - Note: Renamed to ABGB_val later
+    # Biomass assimilation (ABGB time series)
+    # CRITICAL: Variable must be named exactly "ABGB" (not "ABGB_val")
+    # CARDAMOM's READ_NETCDF_TIMESERIES_OBS_FIELDS() looks for "ABGB"
+    # If renamed to ABGB_val, CARDAMOM reports "obs length: 0" and can't use observations
     if 'ABGB' in target_ds:
         target_ds.ABGB.attrs.update({
             'opt_filter': 3.0,
@@ -619,13 +705,23 @@ def add_doy_variable(target_ds):
 
 
 def finalize_and_save(dataset, output_filepath):
-    """Finalizes dataset (renaming, encoding) and saves to NetCDF."""
+    """Finalizes dataset (encoding) and saves to NetCDF.
+
+    Scientific Context:
+    Variable names must exactly match CARDAMOM's expected NetCDF schema.
+    CARDAMOM reads specific variable names via READ_NETCDF_TIMESERIES_OBS_FIELDS(),
+    so renaming breaks the data pipeline. The ABGB variable must remain "ABGB",
+    not "ABGB_val" - the "_val" suffix causes CARDAMOM to report "obs length: 0".
+    """
     final_ds = dataset.copy()
 
-    # Rename ABGB to ABGB_val as per original script
-    if 'ABGB' in final_ds:
-        final_ds = final_ds.rename({'ABGB': 'ABGB_val'})
-        logger.info(f"Renamed 'ABGB' to 'ABGB_val'.")
+    # NOTE: Do NOT rename ABGB to ABGB_val
+    # CARDAMOM expects exactly "ABGB" as variable name
+    # If renamed to ABGB_val, CARDAMOM will not find the observation data
+    # and will report "Preprocess ABGB: obs length: 0"
+    if 'ABGB_val' in final_ds:
+        logger.warning("Found 'ABGB_val' - renaming to 'ABGB' for CARDAMOM compatibility")
+        final_ds = final_ds.rename({'ABGB_val': 'ABGB'})
 
     # Set encoding for CARDAMOM compatibility
     if 'time' in final_ds.coords:
@@ -807,11 +903,18 @@ def generate_cbf_files(
             # CRITICAL: Use meteorological data's time coordinate, not scaffold's time coordinate
 
             # a. Copy scaffold but replace time coordinate with meteorological time
+            # Drop variables that will be re-populated from observations
+            # These include:
+            # - 'val' suffix vars (ABGB_val, ABGB from old code)
+            # - ET, NBE, LAI: Will be populated from observations
+            # - Ceff: Will be handled as prior parameter
             vars_to_drop = [
                 v
                 for v in scaffold_ds.data_vars
                 if any(x in v for x in ['val', 'ET', 'NBE', 'LAI', 'Ceff'])
             ]
+
+            logger.debug(f"Dropping scaffold variables: {vars_to_drop}")
 
             # Create new dataset with meteorological time coordinate
             scaffold_copy = scaffold_ds.copy().drop_vars(vars_to_drop)
