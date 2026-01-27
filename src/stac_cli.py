@@ -372,6 +372,13 @@ def create_cbf_parser(subparsers) -> None:
     )
 
     parser.add_argument(
+        '--mcmc-iterations',
+        type=float,
+        default=500000.0,
+        help='Number of MCMC iterations for parameter estimation (default: 500000)'
+    )
+
+    parser.add_argument(
         '--verbose',
         action='store_true',
         help='Print debug information'
@@ -587,6 +594,7 @@ def handle_cbf_generate(args) -> int:
             som_file=args.som_file,
             fir_file=args.fir_file,
             scaffold_file=args.scaffold_file,
+            mcmc_iterations=args.mcmc_iterations,
             # region parameter not yet implemented in generate_cbf_files
             # For now, use default CONUS region from cbf_main constants
         )

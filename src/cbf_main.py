@@ -751,6 +751,7 @@ def generate_cbf_files(
     lat_range: np.ndarray = None,
     lon_range: np.ndarray = None,
     land_threshold: float = 0.5,
+    mcmc_iterations: float = 500000.0,
 ):
     """
     Generate CBF files from STAC meteorology and observational data.
@@ -769,6 +770,7 @@ def generate_cbf_files(
         lat_range (np.ndarray): Latitude indices to process (optional, uses default if None)
         lon_range (np.ndarray): Longitude indices to process (optional, uses default if None)
         land_threshold (float): Minimum land fraction threshold (default: 0.5)
+        mcmc_iterations (float): Number of MCMC iterations for parameter estimation (default: 500000)
 
     Workflow:
     1. Load meteorology from STAC (FAIL if incomplete)
@@ -982,7 +984,7 @@ def generate_cbf_files(
             add_doy_variable(pixel_ds)
 
             # h. Set MCMC attributes
-            set_mcmc_attributes(pixel_ds, MCMC_ITERATIONS, MCMC_SAMPLES)
+            set_mcmc_attributes(pixel_ds, mcmc_iterations, MCMC_SAMPLES)
 
             # i. Finalize and save
             finalize_and_save(pixel_ds, str(output_file))
