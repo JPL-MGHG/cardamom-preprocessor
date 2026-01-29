@@ -10,6 +10,22 @@ $namespaces:
 $schemas:
   - http://schema.org/version/latest/schemaorg-current-https.rdf
 
+# Schema.org Metadata for Discoverability
+s:softwareVersion: "1.0.0"
+s:version: "1.0.0"
+s:datePublished: "2026-01-04"
+s:author:
+  - class: s:Person
+    s:name: CARDAMOM Development Team
+    s:email: support@maap-project.org
+
+s:contributor:
+  - class: s:Person
+    s:name: MAAP Platform Team
+
+s:codeRepository: https://github.com/JPL-MGHG/cardamom-preprocessor
+s:license: https://opensource.org/licenses/Apache-2.0
+
 $graph:
 
   # ============================================================================
@@ -36,21 +52,6 @@ $graph:
       - Collections organized by variable type (burned area, emissions)
       - Items with comprehensive fire-specific metadata
 
-    # Schema.org Metadata for Discoverability
-    s:softwareVersion: "1.0.0"
-    s:datePublished: "2026-01-04"
-    s:author:
-      - class: s:Person
-        s:name: CARDAMOM Development Team
-        s:email: support@maap-project.org
-
-    s:contributor:
-      - class: s:Person
-        s:name: MAAP Platform Team
-
-    s:codeRepository: https://github.com/JPL-MGHG/cardamom-preprocessor
-    s:license: https://opensource.org/licenses/Apache-2.0
-
     # ========================================================================
     # Workflow Inputs (OGC Interface)
     # ========================================================================
@@ -61,6 +62,7 @@ $graph:
 
       start_year:
         type: int
+        label: Start Year
         doc: |
           First year to download (2001 or later).
 
@@ -71,6 +73,7 @@ $graph:
 
       end_year:
         type: int
+        label: End Year
         doc: |
           Last year to download (2024 or later with provisioning).
 
@@ -83,6 +86,7 @@ $graph:
 
       gfed_sftp_username:
         type: string?
+        label: GFED SFTP Username
         doc: |
           GFED SFTP username for authentication.
 
@@ -91,6 +95,7 @@ $graph:
 
       gfed_sftp_password:
         type: string?
+        label: GFED SFTP Password
         doc: |
           GFED SFTP password for authentication.
 
@@ -101,6 +106,7 @@ $graph:
 
       land_sea_mask_file:
         type: File?
+        label: Land-Sea Mask File
         doc: |
           Land-sea mask NetCDF file for spatial filtering.
 
@@ -113,6 +119,7 @@ $graph:
       keep_raw:
         type: boolean?
         default: false
+        label: Keep Raw HDF5 Files
         doc: |
           If true, retains raw HDF5 files downloaded via SFTP.
 
@@ -122,6 +129,7 @@ $graph:
       verbose:
         type: boolean?
         default: false
+        label: Verbose Logging
         doc: |
           Enable verbose debug logging.
 
@@ -130,6 +138,7 @@ $graph:
       no_stac_incremental:
         type: boolean?
         default: false
+        label: Rebuild STAC Catalog
         doc: |
           Disable incremental STAC catalog updates.
 
@@ -139,6 +148,7 @@ $graph:
       stac_duplicate_policy:
         type: string?
         default: "update"
+        label: STAC Duplicate Policy
         doc: |
           How to handle duplicate STAC items when incremental mode is enabled.
 
@@ -251,50 +261,59 @@ $graph:
 
       start_year:
         type: int
+        label: Start Year
         inputBinding:
           prefix: --start-year
 
       end_year:
         type: int
+        label: End Year
         inputBinding:
           prefix: --end-year
 
       gfed_sftp_username:
         type: string?
+        label: GFED SFTP Username
         inputBinding:
           prefix: --gfed_sftp_username
 
       gfed_sftp_password:
         type: string?
+        label: GFED SFTP Password
         inputBinding:
           prefix: --gfed_sftp_password
 
       land_sea_mask_file:
         type: File?
+        label: Land-Sea Mask File
         inputBinding:
           prefix: --land-sea-mask-file
 
       keep_raw:
         type: boolean?
         default: false
+        label: Keep Raw HDF5 Files
         inputBinding:
           prefix: --keep-raw
 
       verbose:
         type: boolean?
         default: false
+        label: Verbose Logging
         inputBinding:
           prefix: --verbose
 
       no_stac_incremental:
         type: boolean?
         default: false
+        label: Rebuild STAC Catalog
         inputBinding:
           prefix: --no-stac-incremental
 
       stac_duplicate_policy:
         type: string?
         default: "update"
+        label: STAC Duplicate Policy
         inputBinding:
           prefix: --stac-duplicate-policy
 

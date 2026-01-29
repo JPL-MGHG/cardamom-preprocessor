@@ -10,6 +10,22 @@ $namespaces:
 $schemas:
   - http://schema.org/version/latest/schemaorg-current-https.rdf
 
+# Schema.org Metadata for Discoverability
+s:softwareVersion: "1.0.0"
+s:version: "1.0.0"
+s:datePublished: "2026-01-04"
+s:author:
+  - class: s:Person
+    s:name: CARDAMOM Development Team
+    s:email: support@maap-project.org
+
+s:contributor:
+  - class: s:Person
+    s:name: MAAP Platform Team
+
+s:codeRepository: https://github.com/JPL-MGHG/cardamom-preprocessor
+s:license: https://opensource.org/licenses/Apache-2.0
+
 $graph:
 
   # ============================================================================
@@ -42,21 +58,6 @@ $graph:
       - Collections organized by variable type (e.g., cardamom-meteorology)
       - Items with comprehensive variable-specific metadata
 
-    # Schema.org Metadata for Discoverability
-    s:softwareVersion: "1.0.0"
-    s:datePublished: "2026-01-04"
-    s:author:
-      - class: s:Person
-        s:name: CARDAMOM Development Team
-        s:email: support@maap-project.org
-
-    s:contributor:
-      - class: s:Person
-        s:name: MAAP Platform Team
-
-    s:codeRepository: https://github.com/JPL-MGHG/cardamom-preprocessor
-    s:license: https://opensource.org/licenses/Apache-2.0
-
     # ========================================================================
     # Workflow Inputs (OGC Interface)
     # ========================================================================
@@ -67,6 +68,7 @@ $graph:
 
       variables:
         type: string
+        label: Meteorological Variables
         doc: |
           Comma-separated list of CARDAMOM meteorological variables to download.
 
@@ -86,6 +88,7 @@ $graph:
 
       year:
         type: int
+        label: Download Year
         doc: |
           Year to download meteorological data.
 
@@ -96,6 +99,7 @@ $graph:
 
       month:
         type: int
+        label: Download Month
         doc: |
           Month to download (1-12).
 
@@ -109,6 +113,7 @@ $graph:
 
       ecmwf_cds_key:
         type: string?
+        label: ECMWF CDS API Key
         doc: |
           ECMWF CDS API Key for authentication.
 
@@ -120,6 +125,7 @@ $graph:
       keep_raw:
         type: boolean?
         default: false
+        label: Keep Raw ERA5 Files
         doc: |
           If true, retains raw ERA5 files downloaded from CDS after processing.
 
@@ -131,6 +137,7 @@ $graph:
       verbose:
         type: boolean?
         default: false
+        label: Verbose Logging
         doc: |
           Enable verbose debug logging.
 
@@ -140,6 +147,7 @@ $graph:
       no_stac_incremental:
         type: boolean?
         default: false
+        label: Rebuild STAC Catalog
         doc: |
           Disable incremental STAC catalog updates.
 
@@ -149,6 +157,7 @@ $graph:
       stac_duplicate_policy:
         type: string?
         default: "update"
+        label: STAC Duplicate Policy
         doc: |
           How to handle duplicate STAC items when incremental mode is enabled.
 
@@ -284,45 +293,53 @@ $graph:
 
       variables:
         type: string
+        label: Meteorological Variables
         inputBinding:
           prefix: --variables
 
       year:
         type: int
+        label: Download Year
         inputBinding:
           prefix: --year
 
       month:
         type: int
+        label: Download Month
         inputBinding:
           prefix: --month
 
       ecmwf_cds_key:
         type: string?
+        label: ECMWF CDS API Key
         inputBinding:
           prefix: --ecmwf_cds_key
 
       keep_raw:
         type: boolean?
         default: false
+        label: Keep Raw ERA5 Files
         inputBinding:
           prefix: --keep-raw
 
       verbose:
         type: boolean?
         default: false
+        label: Verbose Logging
         inputBinding:
           prefix: --verbose
 
       no_stac_incremental:
         type: boolean?
         default: false
+        label: Rebuild STAC Catalog
         inputBinding:
           prefix: --no-stac-incremental
 
       stac_duplicate_policy:
         type: string?
         default: "update"
+        label: STAC Duplicate Policy
         inputBinding:
           prefix: --stac-duplicate-policy
 

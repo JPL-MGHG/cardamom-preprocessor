@@ -10,6 +10,22 @@ $namespaces:
 $schemas:
   - http://schema.org/version/latest/schemaorg-current-https.rdf
 
+# Schema.org Metadata for Discoverability
+s:softwareVersion: "1.0.0"
+s:version: "1.0.0"
+s:datePublished: "2026-01-04"
+s:author:
+  - class: s:Person
+    s:name: CARDAMOM Development Team
+    s:email: support@maap-project.org
+
+s:contributor:
+  - class: s:Person
+    s:name: MAAP Platform Team
+
+s:codeRepository: https://github.com/JPL-MGHG/cardamom-preprocessor
+s:license: https://opensource.org/licenses/Apache-2.0
+
 $graph:
 
   # ============================================================================
@@ -41,21 +57,6 @@ $graph:
       3. Extract pixel-level data for each valid land pixel
       4. Generate CARDAMOM-ready CBF NetCDF files
 
-    # Schema.org Metadata for Discoverability
-    s:softwareVersion: "1.0.0"
-    s:datePublished: "2026-01-04"
-    s:author:
-      - class: s:Person
-        s:name: CARDAMOM Development Team
-        s:email: support@maap-project.org
-
-    s:contributor:
-      - class: s:Person
-        s:name: MAAP Platform Team
-
-    s:codeRepository: https://github.com/JPL-MGHG/cardamom-preprocessor
-    s:license: https://opensource.org/licenses/Apache-2.0
-
     # ========================================================================
     # Workflow Inputs (OGC Interface)
     # ========================================================================
@@ -66,6 +67,7 @@ $graph:
 
       stac_api:
         type: string
+        label: STAC Catalog Path
         doc: |
           STAC API endpoint or catalog path for meteorological data discovery.
 
@@ -78,6 +80,7 @@ $graph:
 
       start:
         type: string
+        label: Start Date
         doc: |
           Start date in YYYY-MM format (inclusive).
 
@@ -88,6 +91,7 @@ $graph:
 
       end:
         type: string
+        label: End Date
         doc: |
           End date in YYYY-MM format (inclusive).
 
@@ -101,6 +105,7 @@ $graph:
       region:
         type: string?
         default: conus
+        label: Geographic Region
         doc: |
           Geographic region for processing.
 
@@ -112,6 +117,7 @@ $graph:
 
       land_fraction_file:
         type: File?
+        label: Land-Sea Fraction Mask
         doc: |
           Land-sea fraction mask NetCDF file.
 
@@ -121,6 +127,7 @@ $graph:
 
       obs_driver_file:
         type: File?
+        label: Observational Constraints File
         doc: |
           Observational constraints NetCDF file.
 
@@ -134,6 +141,7 @@ $graph:
 
       som_file:
         type: File?
+        label: Soil Organic Matter File
         doc: |
           Soil Organic Matter initialization file.
 
@@ -142,6 +150,7 @@ $graph:
 
       fir_file:
         type: File?
+        label: Fire Emissions File
         doc: |
           Fire emissions file.
 
@@ -149,6 +158,7 @@ $graph:
 
       scaffold_file:
         type: File?
+        label: CBF Template File
         doc: |
           CBF template file for copying attributes and structure.
 
@@ -161,6 +171,7 @@ $graph:
       verbose:
         type: boolean?
         default: false
+        label: Verbose Logging
         doc: |
           Enable verbose debug logging.
 
@@ -263,53 +274,63 @@ $graph:
 
       stac_api:
         type: string
+        label: STAC Catalog Path
         inputBinding:
           prefix: --stac-api
 
       start:
         type: string
+        label: Start Date
         inputBinding:
           prefix: --start
 
       end:
         type: string
+        label: End Date
         inputBinding:
           prefix: --end
 
       region:
         type: string?
         default: conus
+        label: Geographic Region
         inputBinding:
           prefix: --region
 
       land_fraction_file:
         type: File?
+        label: Land-Sea Fraction Mask
         inputBinding:
           prefix: --land-fraction-file
 
       obs_driver_file:
         type: File?
+        label: Observational Constraints File
         inputBinding:
           prefix: --obs-driver-file
 
       som_file:
         type: File?
+        label: Soil Organic Matter File
         inputBinding:
           prefix: --som-file
 
       fir_file:
         type: File?
+        label: Fire Emissions File
         inputBinding:
           prefix: --fir-file
 
       scaffold_file:
         type: File?
+        label: CBF Template File
         inputBinding:
           prefix: --scaffold-file
 
       verbose:
         type: boolean?
         default: false
+        label: Verbose Logging
         inputBinding:
           prefix: --verbose
 
