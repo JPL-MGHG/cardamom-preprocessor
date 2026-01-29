@@ -148,7 +148,7 @@ echo ""
 
 echo "[4/4] Executing CARDAMOM GFED downloader..."
 
-OUTPUT_DIR="./outputs"
+OUTPUT_DIR="${PWD}/outputs"
 
 # Ensure directory exists
 if [[ ! -d "$OUTPUT_DIR" ]]; then

@@ -91,7 +91,7 @@ echo ""
 
 echo "[2/3] Preparing output directory..."
 
-OUTPUT_DIR="./outputs"
+OUTPUT_DIR="${PWD}/outputs"
 
 # Ensure directory exists
 if [[ ! -d "$OUTPUT_DIR" ]]; then

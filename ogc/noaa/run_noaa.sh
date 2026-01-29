@@ -35,7 +35,7 @@ echo ""
 
 echo "[1/3] Preparing output directory..."
 
-OUTPUT_DIR="./outputs"
+OUTPUT_DIR="${PWD}/outputs"
 
 # Ensure directory exists
 if [[ ! -d "$OUTPUT_DIR" ]]; then
