@@ -11,9 +11,9 @@ $schemas:
   - http://schema.org/version/latest/schemaorg-current-https.rdf
 
 # Schema.org Metadata for Discoverability
-s:softwareVersion: "1.0.0"
-s:version: "1.0.0"
-s:datePublished: "2026-01-04"
+s:softwareVersion: 1.0.0
+s:version: 1.0.0
+s:datePublished: 2026-01-04
 s:author:
   - class: s:Person
     s:name: CARDAMOM Development Team
